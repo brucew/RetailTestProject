@@ -38,7 +38,7 @@ class StorePagesTest < ActionDispatch::IntegrationTest
   end
 
   test "the store page lists checks newest first, 50 to a page" do
-    record_daily_checks(@store, products(:pony_porter), days: 51, from: Date.new(2025, 1, 1))
+    record_daily_checks(store: @store, product: products(:pony_porter), days: 51, from: Date.new(2025, 1, 1))
 
     get store_path(@store)
 
@@ -50,7 +50,7 @@ class StorePagesTest < ActionDispatch::IntegrationTest
   end
 
   test "the second page of the store page continues with older checks" do
-    record_daily_checks(@store, products(:pony_porter), days: 51, from: Date.new(2025, 1, 1))
+    record_daily_checks(store: @store, product: products(:pony_porter), days: 51, from: Date.new(2025, 1, 1))
 
     get store_path(@store, page: 2)
 
@@ -97,15 +97,5 @@ class StorePagesTest < ActionDispatch::IntegrationTest
     get store_path(@store, page: "abc")
 
     assert_response :bad_request
-  end
-
-  private
-
-  def record_daily_checks(store, product, days:, from:)
-    rows = Array.new(days) do |offset|
-      { store_id: store.id, product_id: product.id, event_time: (from + offset).to_time(:utc),
-        inventory_present: offset.even? }
-    end
-    InventoryCheck.insert_all!(rows)
   end
 end

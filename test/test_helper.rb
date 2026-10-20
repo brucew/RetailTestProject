@@ -1,6 +1,7 @@
 ENV["RAILS_ENV"] ||= "test"
 require_relative "../config/environment"
 require "rails/test_help"
+require_relative "support/inventory_check_history"
 require_relative "support/query_assertions"
 
 module ActiveSupport
@@ -11,6 +12,7 @@ module ActiveSupport
     # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
     fixtures :all
 
+    include InventoryCheckHistory
     include QueryAssertions
 
     # The unique index makes exact duplicates impossible, but the cleanup task
