@@ -370,7 +370,7 @@ What ships: the submission itself.
 - [x] Step 0 — Foundation
 - [x] Step 1 — Rename, schema, importer, pages
 - [x] Step 2 — Price tracking
-- [ ] Step 3 — Alert system
+- [ ] Step 3 — Alert system (awaiting Bruce's review)
 - [ ] Step 4 — Submission
 
 ---
@@ -415,3 +415,14 @@ What ships: the submission itself.
   covers prices, wired up in `test_helper`. *(2.C)*
 - A COPY-based import path in `CsvCheckImporter` would speed up both importers at once. Most of
   the time is Ruby building `insert_all` SQL. *(2.B)*
+- About 40% of a fresh full alert rebuild goes to the six foreign-key triggers on
+  `inventory_alerts`. Consider fewer foreign keys on this derived, rebuildable table if backfills
+  grow. *(3.B)*
+- An index on `(store_id, product_id, event_time, id) INCLUDE (inventory_present)` would remove
+  the per-pair sort in scoped reconciles. Not needed at 0.5 ms per pair. *(3.B)*
+- Take a per-pair `pg_advisory_xact_lock` in the reconciler if imports may ever run concurrently.
+  *(3.B)*
+- A partial index on `inventory_alerts (triggered_at) WHERE resolved_at IS NULL` if open-only
+  listings get slow. ~21 ms on 30k alerts today. *(3.C)*
+- Move the test-only `create_alert` builder into `test/support` if more tests need hand-built
+  alerts. *(3.C)*
