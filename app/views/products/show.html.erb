@@ -9,8 +9,6 @@
 
 <%= render "products/current_prices", current_prices: @current_prices %>
 
-<%= render "products/price_history", pagy: @price_pagy, price_checks: @price_checks %>
-
 <h2 id="inventory-checks">Inventory checks, newest first</h2>
 
 <% if @pagy.count.zero? %>
@@ -31,5 +29,12 @@
     </table>
   </div>
 
-  <%= render "shared/pagination", pagy: @pagy, anchor: "inventory-checks" %>
+  <%= render "shared/pagination", pagy: @pagy, fragment: "#inventory-checks" %>
+<% end %>
+
+<h2>Price history, newest first</h2>
+
+<%# Loaded only when scrolled into view; the link is the fallback without JavaScript. %>
+<%= turbo_frame_tag "price_history", src: product_price_checks_path(@product), loading: :lazy do %>
+  <p><%= link_to "Show the price history", product_price_checks_path(@product) %></p>
 <% end %>
