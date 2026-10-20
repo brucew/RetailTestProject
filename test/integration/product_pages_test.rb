@@ -74,7 +74,8 @@ class ProductPagesTest < ActionDispatch::IntegrationTest
     assert_select "table.inventory-checks tbody tr", 50
     assert_select "table.inventory-checks tbody tr:first-child time", "2025-02-20"
     assert_select "table.inventory-checks tbody tr:last-child time", "2025-01-02"
-    assert_select "nav.pagy a[href=?]", product_path(@product, page: 2)
+    assert_select "h2#inventory-checks"
+    assert_select "nav.pagy a[href=?]", product_path(@product, page: 2, anchor: "inventory-checks")
   end
 
   test "the second page of the product page continues with older checks" do

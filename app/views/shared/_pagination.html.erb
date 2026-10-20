@@ -1,4 +1,5 @@
+<%# Page links return to the list's heading (anchor), not the top of a page that may hold several lists. %>
 <div class="pagination">
   <%== pagy_info(pagy) %>
-  <%== pagy_nav(pagy) if pagy.pages > 1 %>
+  <%== pagy_nav(pagy, fragment: "##{anchor}") if pagy.pages > 1 %>
 </div>
