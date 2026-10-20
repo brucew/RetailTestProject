@@ -38,7 +38,7 @@ class BrandPagesTest < ActionDispatch::IntegrationTest
     assert_select ".summary dd", "3"
     assert_equal ["Pony Bitter", "Pony Pale Ale", "Pony Porter"],
                  css_select("table.products tbody tr td:first-child").map(&:text)
-    assert_equal %w[0 2 1], css_select("table.products tbody td.numeric").map(&:text)
+    assert_equal %w[0 2 4], css_select("table.products tbody td.numeric").map(&:text)
     assert_select "table.products a[href=?]", product_path(products(:pony_pale_ale))
   end
 
