@@ -1,11 +1,23 @@
-# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+pale_ale_in_stock_at_bree:
+  product: pony_pale_ale
+  store: bree_high_street
+  inventory_present: true
+  event_time: 2024-03-01 09:00:00
 
-# This model initially had no columns defined. If you add columns to the
-# model remove the "{}" from the fixture names and add the columns immediately
-# below each fixture, per the syntax in the comments below
-#
-one: {}
-# column: value
-#
-two: {}
-# column: value
+pale_ale_sold_out_at_bree:
+  product: pony_pale_ale
+  store: bree_high_street
+  inventory_present: false
+  event_time: 2024-03-02 09:00:00
+
+porter_in_stock_at_hobbiton:
+  product: pony_porter
+  store: hobbiton_bywater_road
+  inventory_present: true
+  event_time: 2024-03-01 10:30:00
+
+stout_sold_out_at_hobbiton:
+  product: dragon_stout
+  store: hobbiton_bywater_road
+  inventory_present: false
+  event_time: 2024-03-03 14:15:00
