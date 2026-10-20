@@ -10,42 +10,46 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2025_12_05_020718) do
+ActiveRecord::Schema[7.1].define(version: 2026_10_20_230200) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
   create_table "brands", force: :cascade do |t|
-    t.string "name"
+    t.string "name", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["name"], name: "index_brands_on_name", unique: true
+  end
+
+  create_table "inventory_checks", force: :cascade do |t|
+    t.boolean "inventory_present", null: false
+    t.bigint "product_id", null: false
+    t.bigint "store_id", null: false
+    t.datetime "event_time", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["product_id", "event_time"], name: "index_inventory_checks_on_product_id_and_event_time"
+    t.index ["store_id", "event_time"], name: "index_inventory_checks_on_store_id_and_event_time"
+    t.index ["store_id", "product_id", "event_time", "inventory_present"], name: "index_inventory_checks_on_store_product_time_presence", unique: true
   end
 
   create_table "products", force: :cascade do |t|
-    t.string "name"
+    t.string "name", null: false
     t.bigint "brand_id", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["brand_id"], name: "index_products_on_brand_id"
+    t.index ["name"], name: "index_products_on_name", unique: true
   end
 
   create_table "stores", force: :cascade do |t|
-    t.string "address"
+    t.string "address", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_stores_on_address", unique: true
   end
 
-  create_table "tracking_events", force: :cascade do |t|
-    t.boolean "inventory_present"
-    t.bigint "product_id", null: false
-    t.bigint "store_id", null: false
-    t.datetime "event_time"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["product_id"], name: "index_tracking_events_on_product_id"
-    t.index ["store_id"], name: "index_tracking_events_on_store_id"
-  end
-
+  add_foreign_key "inventory_checks", "products"
+  add_foreign_key "inventory_checks", "stores"
   add_foreign_key "products", "brands"
-  add_foreign_key "tracking_events", "products"
-  add_foreign_key "tracking_events", "stores"
 end

@@ -1,0 +1,4 @@
+Address,Product Name,Date,Inventory Present
+"1 High Street, Bree",Pony Pale Ale,02/01/2025,True
+"1 High Street, Bree",Pony Pale Ale,,True
+"1 High Street, Bree",Pony Pale Ale,2025-02-30,True

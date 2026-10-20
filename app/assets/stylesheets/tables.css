@@ -1,0 +1,43 @@
+/* Wide tables scroll sideways on a phone instead of widening the page. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table th,
+.data-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-table th {
+  font-size: 0.875rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+  background: var(--color-surface);
+}
+
+.data-table .numeric {
+  text-align: right;
+}
+
+.data-table tbody tr:hover {
+  background: var(--color-surface);
+}
+
+.empty-state {
+  color: var(--color-muted);
+}
+
+/* Keep ISO dates and status labels on one line in narrow columns. */
+.data-table time,
+.data-table .status {
+  white-space: nowrap;
+}

@@ -1,42 +1,31 @@
 <h1><%= @product.name %></h1>
 
-<p>
-  <strong>Brand:</strong>
-  <% if @product.brand %>
-    <%= link_to @product.brand.name, brand_path(@product.brand) %>
-  <% else %>
-    None
-  <% end %>
-</p>
+<dl class="summary">
+  <dt>Brand</dt>
+  <dd><%= link_to @product.brand.name, @product.brand %></dd>
+  <dt>Inventory checks</dt>
+  <dd><%= number_with_delimiter(@pagy.count) %></dd>
+</dl>
 
-<p>
-  <strong>Total Tracking Events:</strong>
-  <%= @product.tracking_events.size %>
-</p>
+<h2>Inventory checks, newest first</h2>
 
-<h2>Tracking Events</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Event Time</th>
-      <th>Inventory Present?</th>
-      <th>Store Address</th>
-    </tr>
-  </thead>
-  <tbody>
-    <% @product.tracking_events.each do |event| %>
-      <tr>
-        <td><%= event.event_time&.strftime("%Y-%m-%d %H:%M") %></td>
-        <td><%= event.inventory_present ? "Yes" : "No" %></td>
-        <td><%= event.store&.address %></td>
-      </tr>
-    <% end %>
-  </tbody>
-</table>
+<% if @pagy.count.zero? %>
+  <p class="empty-state">No inventory checks have been recorded for this product.</p>
+<% else %>
+  <div class="table-scroll">
+    <table class="data-table inventory-checks">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Inventory</th>
+          <th>Store</th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= render partial: "products/inventory_check", collection: @inventory_checks %>
+      </tbody>
+    </table>
+  </div>
 
-<nav>
-  <%= link_to "Back to Products", products_path %> |
-  <%= link_to "Brands", brands_path %> |
-  <%= link_to "Stores", stores_path %>
-</nav>
-
+  <%= render "shared/pagination", pagy: @pagy %>
+<% end %>

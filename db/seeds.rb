@@ -1,6 +1,6 @@
 # db/seeds.rb
 #
-# Idempotent: safe to re-run at any time, including after tracking events have
+# Idempotent: safe to re-run at any time, including after inventory checks have
 # been imported. Rows are found or created by their natural key (brand name,
 # product name, store address) and never deleted, because imported events
 # reference them and the CSV importer looks them up by those exact strings.

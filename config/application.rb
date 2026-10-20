@@ -23,5 +23,12 @@ module RetailTestProject
     #
     # config.time_zone = "Central Time (US & Canada)"
     # config.eager_load_paths << Rails.root.join("extras")
+
+    # A page past the last one names a page that does not exist, and a page of
+    # 0 or "abc" is a malformed request. Without this both would be 500s.
+    config.action_dispatch.rescue_responses.merge!(
+      "Pagy::OverflowError" => :not_found,
+      "Pagy::VariableError" => :bad_request
+    )
   end
 end
