@@ -29,4 +29,14 @@ class InventoryAlert < ApplicationRecord
   def open?
     resolved_at.nil?
   end
+
+  # The checks from the streak's first miss through the check that resolved
+  # it (or the latest check, while open), in timeline order. Same-day checks
+  # are ordered by id, so bounds compare (event_time, id) pairs.
+  def streak_checks
+    checks = store.inventory_checks.where(product_id:)
+                  .where("(event_time, id) >= (:time, :id)", time: started_at, id: streak_start_check_id)
+    checks = checks.where("(event_time, id) <= (:time, :id)", time: resolved_at, id: resolving_check_id) unless open?
+    checks.order(:event_time, :id)
+  end
 end

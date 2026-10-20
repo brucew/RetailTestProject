@@ -42,6 +42,35 @@ class InventoryAlertTest < ActiveSupport::TestCase
     assert_equal 2, InventoryAlert.with_status(nil).count
   end
 
+  test "a resolved alert's streak runs from its first miss through the check that resolved it" do
+    expected = %i[porter_sold_out_at_hobbiton porter_still_sold_out_at_hobbiton porter_restocked_at_hobbiton]
+
+    assert_equal expected.map { inventory_checks(_1) }, inventory_alerts(:porter_out_at_hobbiton).streak_checks.to_a
+  end
+
+  test "an open alert's streak runs from its first miss through the latest check" do
+    alert = inventory_alerts(:stout_out_at_hobbiton)
+    later_miss = alert.store.inventory_checks.create!(product: alert.product, event_time: Time.utc(2024, 3, 9),
+                                                      inventory_present: false)
+
+    assert_equal [inventory_checks(:stout_sold_out_at_hobbiton), inventory_checks(:stout_still_sold_out_at_hobbiton), later_miss],
+                 alert.streak_checks.to_a
+  end
+
+  test "a streak excludes same-day checks recorded before its first miss or after its resolution" do
+    alert = inventory_alerts(:porter_out_at_hobbiton)
+    after_resolution = alert.store.inventory_checks.create!(product: alert.product, event_time: alert.resolved_at,
+                                                            inventory_present: false)
+    before_start = InventoryCheck.new(store: alert.store, product: alert.product, event_time: alert.started_at,
+                                      inventory_present: true)
+    before_start.id = alert.streak_start_check_id - 1_000
+    before_start.save!
+
+    assert_not_includes alert.streak_checks, after_resolution
+    assert_not_includes alert.streak_checks, before_start
+    assert_equal 3, alert.streak_checks.count
+  end
+
   test "brands, stores and products list their alerts" do
     assert_equal [inventory_alerts(:stout_out_at_hobbiton)], brands(:green_dragon).inventory_alerts.to_a
     assert_equal 2, stores(:hobbiton_bywater_road).inventory_alerts.count
