@@ -37,4 +37,12 @@ class ProductTest < ActiveSupport::TestCase
     assert_not product.destroy
     assert Product.exists?(product.id)
   end
+
+  test "a product with price checks cannot be deleted, even without inventory checks" do
+    product = products(:pony_pale_ale)
+    product.inventory_checks.delete_all(:delete_all)
+
+    assert_not product.destroy
+    assert Product.exists?(product.id)
+  end
 end

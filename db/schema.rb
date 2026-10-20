@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_10_20_230200) do
+ActiveRecord::Schema[7.1].define(version: 2026_10_20_234500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
 
@@ -33,6 +33,18 @@ ActiveRecord::Schema[7.1].define(version: 2026_10_20_230200) do
     t.index ["store_id", "product_id", "event_time", "inventory_present"], name: "index_inventory_checks_on_store_product_time_presence", unique: true
   end
 
+  create_table "price_checks", force: :cascade do |t|
+    t.bigint "store_id", null: false
+    t.bigint "product_id", null: false
+    t.datetime "event_time", null: false
+    t.bigint "price_cents", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["product_id", "event_time"], name: "index_price_checks_on_product_id_and_event_time"
+    t.index ["store_id", "product_id", "event_time", "price_cents"], name: "index_price_checks_on_store_product_time_price", unique: true
+    t.check_constraint "price_cents >= 0", name: "price_checks_price_cents_not_negative"
+  end
+
   create_table "products", force: :cascade do |t|
     t.string "name", null: false
     t.bigint "brand_id", null: false
@@ -51,5 +63,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_10_20_230200) do
 
   add_foreign_key "inventory_checks", "products"
   add_foreign_key "inventory_checks", "stores"
+  add_foreign_key "price_checks", "products", name: "fk_price_checks_product"
+  add_foreign_key "price_checks", "stores", name: "fk_price_checks_store"
   add_foreign_key "products", "brands"
 end

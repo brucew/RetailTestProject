@@ -368,7 +368,7 @@ What ships: the submission itself.
 ## 8. Progress
 
 - [x] Step 0 — Foundation
-- [ ] Step 1 — Rename, schema, importer, pages (awaiting Bruce's review)
+- [x] Step 1 — Rename, schema, importer, pages
 - [ ] Step 2 — Price tracking
 - [ ] Step 3 — Alert system
 - [ ] Step 4 — Submission

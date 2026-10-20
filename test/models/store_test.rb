@@ -26,4 +26,12 @@ class StoreTest < ActiveSupport::TestCase
     assert_not store.destroy
     assert Store.exists?(store.id)
   end
+
+  test "a store with price checks cannot be deleted, even without inventory checks" do
+    store = stores(:bree_high_street)
+    store.inventory_checks.delete_all(:delete_all)
+
+    assert_not store.destroy
+    assert Store.exists?(store.id)
+  end
 end
