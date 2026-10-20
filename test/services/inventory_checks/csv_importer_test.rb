@@ -128,7 +128,7 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
     assert_equal 1, result.inserted
   end
 
-  # tracking_events.csv uses CRLF; the excerpt below is stored with LF by git.
+  # The delivered data file (inventory_checks.csv) uses CRLF; the excerpt below is stored with LF by git.
   test "a file with Windows line endings imports like any other" do
     Tempfile.create(%w[windows_line_endings .csv]) do |file|
       file.write(file_fixture("inventory_checks/valid.csv").read.gsub("\n", "\r\n"))
@@ -140,7 +140,7 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
     end
   end
 
-  test "a tracking_events.csv excerpt imports with its UTF-8 store and product names" do
+  test "an excerpt of the delivered data file imports with its UTF-8 store and product names" do
     create_catalog_from_tracking_events_excerpt
 
     result = import("tracking_events_excerpt.csv")

@@ -28,7 +28,16 @@ class InventoryChecksImportTaskTest < ActiveSupport::TestCase
     assert_includes output, %(  rejected line 4: unknown product "Orc Draught"\n)
   end
 
-  test "without a path, the legacy tracking_events.csv in the app root is imported" do
+  test "without a path, inventory_checks.csv in the app root is imported even when tracking_events.csv exists" do
+    in_app_root_with("inventory_checks.csv" => "valid.csv", "tracking_events.csv" => "unknown_store_and_product.csv") do |root|
+      output = capture_io { import_task.execute(Rake::TaskArguments.new([:path], [])) }.first
+
+      assert_includes output, "Importing inventory checks from #{root.join('inventory_checks.csv')}\n"
+      assert_includes output, "rows read=4 inserted=4 duplicates=0 rejected=0"
+    end
+  end
+
+  test "without a path or inventory_checks.csv, the legacy tracking_events.csv in the app root is imported" do
     in_app_root_with("tracking_events.csv" => "valid.csv") do |root|
       output = capture_io { import_task.execute(Rake::TaskArguments.new([:path], [])) }.first
 
@@ -69,7 +78,7 @@ class InventoryChecksImportTaskTest < ActiveSupport::TestCase
   end
 
   # Builds a throwaway app root holding copies of fixture files, so the task's
-  # default lookup never sees the real tracking_events.csv.
+  # default lookup never sees the real data file in the repository root.
   def in_app_root_with(copies = {}, &block)
     Dir.mktmpdir do |dir|
       root = Pathname(dir)
