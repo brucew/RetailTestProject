@@ -6,6 +6,7 @@ require "test_helper"
 class SeedsTest < ActiveSupport::TestCase
   setup do
     InventoryCheck.delete_all
+    PriceCheck.delete_all
     Product.delete_all
     Brand.delete_all
     Store.delete_all

@@ -120,6 +120,42 @@ per-type import tasks.
   about 30–40 ms over 960k rows.
 - **Tests cap queries per page**, so an N+1 regression fails the build.
 
+### Price tracking (Objective 1)
+
+- **Its own table.** A price check is independent of an inventory check (either can happen without
+  the other), so `price_checks` stands alone with non-nullable columns: store, product, date and
+  `price_cents`.
+- **Money as integer cents.** One currency (USD). A `CHECK (price_cents >= 0)` constraint keeps
+  prices from going negative; zero is allowed. CSV prices like `4.99` are parsed through
+  `BigDecimal`, never `Float`. Anything else (`$5`, `5,00`, `1.234`, `-1`, blank) is rejected with
+  a reason.
+- **Same duplicate rule as inventory.** Exact repeats are skipped by a unique index, so re-imports
+  are idempotent. Different prices on the same day are all kept, and the later row is the current
+  price. `4.9` and `4.90` are the same number of cents, so they count as a repeat.
+- **One shared importer.** `CsvCheckImporter` holds the streaming, header check, batching,
+  `insert_all`, transaction, counting and reporting. Each kind of check is a single declaration:
+  model, row parser, unique index and file names. Adding a third kind of check is a few lines.
+- **Current price per store and product** uses `DISTINCT ON (store_id, product_id) … ORDER BY
+  event_time DESC, id DESC`. It's wrapped as a subquery so a page can scope it through its owner,
+  then order and eager-load it freely. About 1.5 ms per page on the data.
+- **Pages.**
+  - The product page shows the current price at each store.
+  - The store page shows the current price of each product. It isn't paginated, because the
+    catalog bounds it at one row per product.
+  - The price history is a nested resource (`/products/:id/price_checks`). The product page loads
+    it lazily in a Turbo Frame, so the product page stays light and paging the history only
+    reloads that frame. The history page also works on its own.
+- **Sample data.** There's no real price data, so `price_checks:generate_sample` writes a
+  reproducible `price_checks.csv` (fixed seed) from the seeded catalog. It has 100,000 rows and is
+  8.2 MB:
+  - a list price per product that changes 0–3 times over the year
+  - a few percent of variation from store to store
+  - 5% promotional prices
+  - 2% exact duplicate rows and 1% same-day repricings, so duplicate skipping and the same-day
+    tie-break are exercised
+
+  It's committed so the documented import works with no extra step.
+
 ## Assumptions
 
 - `event_time` is date-granular. Checks are stored at midnight UTC and displayed as dates.
@@ -128,6 +164,7 @@ per-type import tasks.
 - Same-day rows with different results are ordered by CSV order (`id`). The later row is the newer
   check.
 - A product name is unique across brands, because the CSV identifies products by name alone.
+- Prices are in a single currency (USD) and, like inventory, recorded per day.
 
 ## Results
 
@@ -150,6 +187,17 @@ table's visibility map is up to date. Autovacuum takes care of this by itself: P
 triggers on inserts, and it ran 2 seconds after the 960k-row import. No explicit `VACUUM` step is
 needed. A database cloned with `createdb -T` doesn't get this until it's vacuumed, which is why
 early measurements on a clone were slower.
+
+**With price tracking (Step 2).** Fresh database, both CSVs, the same method as above:
+
+| Operation | Result |
+|---|---|
+| `tracking_events:import` (1M inventory rows + 100k price rows) | 38.6 s: 960,511 + 98,022 inserted · 39,489 + 1,978 duplicates · 0 rejected |
+| Re-run | 32.5 s · 0 inserted |
+| `/products/1` (current price by store, inventory checks) | 17 ms · 6 queries · 31 KB |
+| `/products/1/price_checks` (lazy price history frame) | 9 ms · 4 queries · 12 KB |
+| `/stores/1` (current price of every product, inventory checks) | 38 ms · 6 queries · 64 KB; database time ~2 ms, the rest is rendering ~220 rows |
+
 
 ## Trade-offs and what I'd do next
 

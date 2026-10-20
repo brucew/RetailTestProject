@@ -23,4 +23,16 @@ class DatabaseConstraintsTest < ActiveSupport::TestCase
     assert_raises(ActiveRecord::NotNullViolation) { check.dup.tap { _1.inventory_present = nil }.save(validate: false) }
     assert_raises(ActiveRecord::NotNullViolation) { check.dup.tap { _1.event_time = nil }.save(validate: false) }
   end
+
+  test "a price check needs a price and a time, and the price cannot be negative" do
+    check = price_checks(:pale_ale_at_bree_march_first)
+
+    assert_raises(ActiveRecord::NotNullViolation) { check.dup.tap { _1.price_cents = nil }.save(validate: false) }
+    assert_raises(ActiveRecord::NotNullViolation) { check.dup.tap { _1.event_time = nil }.save(validate: false) }
+    assert_raises(ActiveRecord::StatementInvalid) { check.dup.tap { _1.price_cents = -1 }.save(validate: false) }
+  end
+
+  test "an exact repeat of a price check is rejected" do
+    assert_raises(ActiveRecord::RecordNotUnique) { price_checks(:pale_ale_at_bree_march_first).dup.save(validate: false) }
+  end
 end

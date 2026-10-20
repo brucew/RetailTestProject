@@ -63,15 +63,18 @@ class StorePagesTest < ActionDispatch::IntegrationTest
     assert_no_match(/09:00/, response.body)
   end
 
-  test "the store page loads its checks, products and brands in a fixed number of queries" do
+  test "the store page loads its prices, checks, products and brands in a fixed number of queries" do
     6.times do |index|
       brand = Brand.create!(name: "Brand #{index}")
       product = brand.products.create!(name: "Product #{index}")
       product.inventory_checks.create!(store: @store, event_time: Time.utc(2024, 4, 1), inventory_present: true)
+      product.price_checks.create!(store: @store, event_time: Time.utc(2024, 4, 1), price_cents: 300 + index)
     end
 
-    # store, page count, page of checks, their products, their brands
-    assert_max_queries(5) { get store_path(@store) }
+    # store, whether it has current prices, current prices with their products
+    # and brands, page count, page of checks, their products, their brands
+    assert_max_queries(7) { get store_path(@store) }
+    assert_select "table.current-prices tbody tr", 7
     assert_select "table.inventory-checks tbody tr", 8
   end
 
@@ -84,7 +87,8 @@ class StorePagesTest < ActionDispatch::IntegrationTest
     assert_select "table.inventory-checks tbody tr", 50
     assert_select "table.inventory-checks tbody tr:first-child time", "2025-02-20"
     assert_select "table.inventory-checks tbody tr:last-child time", "2025-01-02"
-    assert_select "nav.pagy a[href=?]", store_path(@store, page: 2)
+    assert_select "h2#inventory-checks"
+    assert_select "nav.pagy a[href=?]", store_path(@store, page: 2, anchor: "inventory-checks")
   end
 
   test "the second page of the store page continues with older checks" do
@@ -117,6 +121,65 @@ class StorePagesTest < ActionDispatch::IntegrationTest
     assert_response :ok
     assert_select ".empty-state", /No inventory checks/
     assert_select "table", 0
+  end
+
+  test "the store page shows each product's latest price, brand and when it was checked" do
+    get store_path(stores(:hobbiton_bywater_road))
+
+    assert_select "table.current-prices tbody tr", 2
+    assert_select "table.current-prices tbody tr:nth-child(1)" do
+      assert_select "a[href=?]", product_path(products(:dragon_stout)), text: "Dragon Stout"
+      assert_select "a[href=?]", brand_path(brands(:green_dragon)), text: "Green Dragon"
+      assert_select "td.numeric", "$6.00"
+      assert_select "time[datetime=?]", "2024-03-03"
+    end
+    assert_select "table.current-prices tbody tr:nth-child(2)" do
+      assert_select "a[href=?]", product_path(products(:pony_pale_ale)), text: "Pony Pale Ale"
+      assert_select "td.numeric", "$4.25"
+      assert_select "time[datetime=?]", "2024-03-01"
+    end
+  end
+
+  test "the store page orders current prices by product name" do
+    brands(:green_dragon).products.create!(name: "Dragon Ale")
+                         .price_checks.create!(store: @store, event_time: Time.utc(2024, 2, 1), price_cents: 399)
+    products(:pony_porter).price_checks.create!(store: @store, event_time: Time.utc(2024, 2, 1), price_cents: 520)
+
+    get store_path(@store)
+
+    assert_equal ["Dragon Ale", "Pony Pale Ale", "Pony Porter"],
+                 css_select("table.current-prices tbody td:first-child").map(&:text)
+  end
+
+  test "a product's current price is its newest check even when an older check was recorded later" do
+    product = products(:pony_pale_ale)
+    product.price_checks.create!(store: @store, event_time: Time.utc(2025, 2, 1), price_cents: 500)
+    product.price_checks.create!(store: @store, event_time: Time.utc(2025, 1, 1), price_cents: 999)
+
+    get store_path(@store)
+
+    assert_select "table.current-prices tbody td.numeric", "$5.00"
+  end
+
+  test "a product's current price is the later-recorded of two checks on the same day" do
+    product = products(:pony_pale_ale)
+    earlier = product.price_checks.create!(store: @store, event_time: Time.utc(2025, 1, 1), price_cents: 520)
+    later = product.price_checks.create!(store: @store, event_time: Time.utc(2025, 1, 1), price_cents: 510)
+    assert_operator later.id, :>, earlier.id
+
+    get store_path(@store)
+
+    assert_select "table.current-prices tbody td.numeric", "$5.10"
+  end
+
+  test "a store without price checks says so instead of showing an empty price table" do
+    store = Store.create!(address: "3 Market Square, Michel Delving")
+
+    get store_path(store)
+
+    assert_response :ok
+    assert_select ".empty-state", /No prices have been recorded/
+    assert_select "table.current-prices", 0
   end
 
   test "an unknown store is not found" do

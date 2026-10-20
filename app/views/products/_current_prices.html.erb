@@ -1,0 +1,20 @@
+<h2>Current price by store</h2>
+
+<% if current_prices.empty? %>
+  <p class="empty-state">No prices have been recorded for this product.</p>
+<% else %>
+  <div class="table-scroll">
+    <table class="data-table current-prices">
+      <thead>
+        <tr>
+          <th>Store</th>
+          <th class="numeric">Price</th>
+          <th>Checked on</th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= render partial: "products/current_price", collection: current_prices %>
+      </tbody>
+    </table>
+  </div>
+<% end %>

@@ -5,7 +5,9 @@
   <dd><%= number_with_delimiter(@pagy.count) %></dd>
 </dl>
 
-<h2>Inventory checks, newest first</h2>
+<%= render "stores/current_prices", current_prices: @current_prices %>
+
+<h2 id="inventory-checks">Inventory checks, newest first</h2>
 
 <% if @pagy.count.zero? %>
   <p class="empty-state">No inventory checks have been recorded at this store.</p>
@@ -26,5 +28,5 @@
     </table>
   </div>
 
-  <%= render "shared/pagination", pagy: @pagy %>
+  <%= render "shared/pagination", pagy: @pagy, fragment: "#inventory-checks" %>
 <% end %>

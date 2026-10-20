@@ -368,8 +368,8 @@ What ships: the submission itself.
 ## 8. Progress
 
 - [x] Step 0 — Foundation
-- [ ] Step 1 — Rename, schema, importer, pages (awaiting Bruce's review)
-- [ ] Step 2 — Price tracking
+- [x] Step 1 — Rename, schema, importer, pages
+- [x] Step 2 — Price tracking
 - [ ] Step 3 — Alert system
 - [ ] Step 4 — Submission
 
@@ -403,6 +403,15 @@ What ships: the submission itself.
   (~40 ms on 960k rows) become a problem. *(1.C)*
 - `COPY` into a temp table plus `INSERT … SELECT … ON CONFLICT DO NOTHING` would likely cut the
   import from ~33 s to ~10–15 s (estimate). ~11 s is Ruby building `insert_all` SQL. *(1.B)*
-- Add `*.csv -text` to `.gitattributes` so committed CSV fixtures keep their line endings. *(1.B)*
+- ~~Add `*.csv -text` to `.gitattributes` so committed CSV fixtures keep their line endings.~~ Done in Step 1, when the data file was renamed. *(1.B)*
 - Step 2: the price importer can reuse the importer's streaming, batching, counting and `Result`
-  shape, plus the `locate_source` pattern. That's the point to extract them. *(1.B)*
+  shape, plus the `locate_source` pattern. That's the point to extract them. Done in 2.B (`CsvCheckImporter`). *(1.B)*
+- Cache the current-price row partials (`render collection:, cached: true`) if the store page needs
+  to be faster. ~95% of its time is rendering, not SQL. *(2.C)*
+- If price data grows ~10x, add `(product_id, store_id, event_time DESC, id DESC) INCLUDE
+  (price_cents)` and `(store_id, product_id, event_time DESC, id DESC)` so the latest-price
+  queries become ordered index scans with no sort. Today they take ~1.5 ms. *(2.C)*
+- Generalize `test/support/inventory_check_history.rb` into a check-history helper that also
+  covers prices, wired up in `test_helper`. *(2.C)*
+- A COPY-based import path in `CsvCheckImporter` would speed up both importers at once. Most of
+  the time is Ruby building `insert_all` SQL. *(2.B)*

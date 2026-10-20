@@ -1,0 +1,23 @@
+pale_ale_at_bree_march_first:
+  product: pony_pale_ale
+  store: bree_high_street
+  event_time: 2024-03-01 00:00:00
+  price_cents: 450
+
+pale_ale_at_bree_march_second:
+  product: pony_pale_ale
+  store: bree_high_street
+  event_time: 2024-03-02 00:00:00
+  price_cents: 475
+
+pale_ale_at_hobbiton_march_first:
+  product: pony_pale_ale
+  store: hobbiton_bywater_road
+  event_time: 2024-03-01 00:00:00
+  price_cents: 425
+
+stout_at_hobbiton_march_third:
+  product: dragon_stout
+  store: hobbiton_bywater_road
+  event_time: 2024-03-03 00:00:00
+  price_cents: 600
