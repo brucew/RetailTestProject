@@ -226,9 +226,9 @@ plan and `NOTES.md` up to date. *Agents* run the parallel tasks.
 ```
 main
  └─ step-N                          # lead: serial task N.A committed here
-     ├─ step-N/<task>   worktree: ../RetailTestProject-wt/<task>   # one per parallel agent
+     ├─ step-N-<task>   worktree: ../RetailTestProject-wt/<task>   # one per parallel agent
      └─ ...
-lead: git merge --no-ff step-N/<task> → step-N (tests + acceptance) → git merge --no-ff step-N → main
+lead: git merge --no-ff step-N-<task> → step-N (tests + acceptance) → git merge --no-ff step-N → main
       git worktree remove …
 ```
 
