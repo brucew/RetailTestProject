@@ -1,0 +1,10 @@
+Address,Product Name,Date,Inventory Present
+"1 High Street, Bree",Pony Pale Ale,2025-01-02,True
+"99 Nowhere Lane, Mordor",Pony Pale Ale,2025-01-02,True
+"1 High Street, Bree",Orc Draught,2025-01-02,True
+"1 High Street, Bree",Pony Pale Ale,02/01/2025,True
+"1 High Street, Bree",Pony Pale Ale,,True
+"1 High Street, Bree",Pony Pale Ale,2025-02-30,True
+"1 High Street, Bree",Pony Pale Ale,2025-01-05,yes
+"1 High Street, Bree",Pony Pale Ale,2025-01-06,
+"1 High Street, Bree",Pony Pale Ale,2025-01-07,1

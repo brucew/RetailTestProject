@@ -13,7 +13,7 @@ namespace :tracking_events do
   
       puts "Importing inventory checks from #{path}..."
       
-      InventoryChecks::CsvImporter.new(path).call
+      InventoryChecks::CsvImporter.new(path).import
   
       puts "Done."
     end
