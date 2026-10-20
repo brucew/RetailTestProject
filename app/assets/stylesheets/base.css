@@ -75,3 +75,16 @@ h2 {
   margin: 0 auto;
   padding: var(--space);
 }
+
+.status {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status--in-stock {
+  color: var(--color-positive);
+}
+
+.status--out-of-stock {
+  color: var(--color-negative);
+}
