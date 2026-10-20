@@ -1,7 +1,7 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <title>RetailTestProject</title>
+    <title>Retail Inventory</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
@@ -11,6 +11,13 @@
   </head>
 
   <body>
-    <%= yield %>
+    <header class="site-header">
+      <%= link_to "Retail Inventory", root_path, class: "site-header__title" %>
+      <%= render "layouts/site_nav" %>
+    </header>
+
+    <main class="page">
+      <%= yield %>
+    </main>
   </body>
 </html>
