@@ -176,11 +176,12 @@ per-type import tasks.
   fragile. `InventoryAlerts::Reconciler` recomputes the alerts the checks imply and makes the table
   match: it inserts new alerts, updates changed ones, and deletes ones the checks no longer
   support. It writes only what differs, so running it twice changes nothing.
-  - **One SQL statement** with named CTEs (window functions: `LAG` marks run starts, a running count
-    numbers the runs, `ARRAY_AGG(... ORDER BY event_time, id)` picks each run's first two checks,
-    `LEAD` finds the restock) and an upsert-plus-delete. Raw SQL is justified here: ActiveRecord
-    can't express window functions, and a set-based query takes about 1.5 s for all 22,826
-    timelines.
+  - **Finding streaks is SQL; writing alerts is ActiveRecord.** One read-only query with named
+    CTEs finds each timeline's streaks with window functions: `LAG` marks run starts, a running
+    count numbers the runs, `ARRAY_AGG(... ORDER BY event_time, id)` picks each run's first two
+    checks, and `LEAD` finds the restock. The reconciler then compares the result with the stored
+    alerts in Ruby and writes the difference with `insert_all`, `upsert_all` and a scoped
+    `delete_all`. The created, updated and deleted counts are simply the sizes of those sets.
   - **Scoped to what changed.** The inventory import collects the store/product pairs that gained
     a check and reconciles only those, inside the import's transaction, so a failed import leaves
     alerts as they were too. `bin/rails inventory_alerts:reconcile` does a full rebuild.
@@ -188,8 +189,34 @@ per-type import tasks.
     `every_pair OR pair IN (...)` condition stopped Postgres from using the index: a one-pair
     reconcile scanned all 960k checks (90 ms against 0.5 ms). The scope is now one of two fixed SQL
     fragments, and a test asserts the index plan.
-  - **Counting created vs updated** uses `RETURNING xmax = 0`, a well-known Postgres implementation
-    detail. The code comments it.
+
+**How much of the reconciler can be ActiveRecord?** I first wrote it as one SQL statement that also
+did the upsert and delete, then re-evaluated each part against ActiveRecord. I measured four designs
+on the full data. All four produced identical alerts:
+
+| Design | Full no-op | Import path (22,826 pairs) | One pair |
+|---|---:|---:|---:|
+| One SQL statement (detect + upsert + delete) | 1.5 s | 1.4 s | 3–6 ms |
+| **SQL detection + ActiveRecord writes (chosen)** | **2.0 s** | **2.1 s** | **5–6 ms** |
+| Detection composed with `.with`/`.select` + tuple `where` | 2.1 s | 83–91 s | 2–3 ms |
+| Plain ActiveRecord reads, streaks found in Ruby | 6.2 s | 86–97 s | 1 ms |
+
+- **Window functions have no ActiveRecord API.** Composing the query with `.with`/`.select` only
+  scatters the same SQL into fragments (`pluck` even needs `Arel.sql` around each array index).
+  Arel's `.over` exists but is semi-internal and harder to read. So the detection stays one SQL
+  query, which is the case the Rails conventions name for raw SQL.
+- **Rails 7.1's tuple `where([:store_id, :product_id] => pairs)` expands to one `OR` term per
+  pair.** Postgres can't serve that from an index, so an import's 22,826 pairs took over 80 s.
+  The detection keeps its `unnest` scope. The reconciler reads stored alerts by store and narrows
+  them to the listed pairs in Ruby.
+- **The writes are where ActiveRecord wins.** Moving them out of SQL removed the hand-written
+  upsert, its nine-column change check, timestamps set by hand, and counting through
+  `RETURNING xmax = 0`, a Postgres implementation detail.
+- **The cost:**
+  - about 0.6 s per full reconcile (2% of an import)
+  - three statements in one transaction instead of one statement
+  - loading the affected alerts into Ruby, up to 30k small rows on a full rebuild
+
 - **Each alert is addressed to the brand.** `brand_id` is stored on the alert, so per-brand
   listings and counts read one table. The reconciler re-derives it, so a product that changes
   brand is followed on the next reconcile of its pairs.
@@ -206,9 +233,11 @@ per-type import tasks.
 - An independent Ruby script, sharing no code with the reconciler, derives every alert from the
   raw CSV. Its output is identical alert by alert to the database's, down to the dates and miss
   counts: 29,978 alerts, 849 open.
-- The reconciler's tests caught every one of 20 deliberate mutations of its SQL, for example
-  `MIN(id)` instead of timeline order, dropping the `id` tie-break, partitioning by store only, or
-  skipping the delete.
+- The reconciler's tests caught every deliberate mutation tried. Twenty were made to the original SQL,
+  for example `MIN(id)` instead of timeline order, dropping the `id` tie-break, or partitioning by
+  store only. Four more were made to the ActiveRecord write path: no change check, updates via
+  `insert_all`, skipped deletes, and stored alerts not narrowed to the listed pairs. The last one
+  survived at first, so I added a test for it.
 - On the full data, importing a single late in-stock check dated between an alert's two misses
   deleted exactly that alert. Removing the check and rebuilding restored it.
 
@@ -264,10 +293,10 @@ early measurements on a clone were slower.
 
 | Operation | Result |
 |---|---|
-| `tracking_events:import` | 41.2 s, including the alert reconcile (~2.6 s): 960,511 + 98,022 checks, **29,978 alerts (849 open)** |
-| Re-run | 26.4 s · 0 inserted · alerts created=0 updated=0 deleted=0 |
-| `inventory_alerts:reconcile` (full rebuild, nothing to change) | 2.1 s |
-| One-pair reconcile | 0.5 ms (index scans on both tables) |
+| `tracking_events:import` | 36–41 s, including the alert reconcile: 960,511 + 98,022 checks, **29,978 alerts (849 open)** |
+| Re-run | 26 s · 0 inserted · alerts created=0 updated=0 deleted=0 |
+| `inventory_alerts:reconcile` (full rebuild, nothing to change) | 2.5 s |
+| One-pair reconcile | ~5 ms (index scans on both tables) |
 | `/inventory_alerts` | 21 ms · 6 queries · 30 KB |
 | `/inventory_alerts?brand_id=…&status=open` | 9 ms · 6 queries |
 | `/inventory_alerts/:id` | 6–15 ms · 5 queries |
