@@ -226,9 +226,9 @@ plan and `NOTES.md` up to date. *Agents* run the parallel tasks.
 ```
 main
  └─ step-N                          # lead: serial task N.A committed here
-     ├─ step-N/<task>   worktree: ../RetailTestProject-wt/<task>   # one per parallel agent
+     ├─ step-N-<task>   worktree: ../RetailTestProject-wt/<task>   # one per parallel agent
      └─ ...
-lead: git merge --no-ff step-N/<task> → step-N (tests + acceptance) → git merge --no-ff step-N → main
+lead: git merge --no-ff step-N-<task> → step-N (tests + acceptance) → git merge --no-ff step-N → main
       git worktree remove …
 ```
 
@@ -250,10 +250,20 @@ lead: git merge --no-ff step-N/<task> → step-N (tests + acceptance) → git me
    you report.
 7. Report back with: a summary, your commits, test output, anything you deliberately left out, and
    **suggestions for §10**.
+8. **Every code change has test coverage.** This covers models, services, rake tasks, controllers,
+   views, seeds and migrations (for example, the A8 abort check). If code is changed without a test
+   that would fail had the change not been made, the task isn't done. *(Required by Bruce.)*
+
+**Bruce reviews every step before it merges.** Once all of a step's tasks are merged into `step-N`
+and the lead's acceptance checks pass, the lead stops and gives Bruce a review summary: the diff
+(`git diff main...step-N`), test results, the coverage map (each changed file → the tests that
+cover it), acceptance numbers, and open questions. `step-N` is merged into `main` only after Bruce
+approves, and the next step starts only after that merge. *(Required by Bruce.)*
 
 **A step is done when:** migrations run on both a fresh and an existing database · `bin/rails test`
-passes · every page returns 200 on the full dataset · the documented commands work · `NOTES.md` has
-this step's decisions and numbers · `step-N` is merged to `main`.
+passes · every code change is covered by tests (rule 8) · every page returns 200 on the full
+dataset · the documented commands work · `NOTES.md` has this step's decisions and numbers · Bruce
+has reviewed and approved it · `step-N` is merged to `main`.
 
 **Time budget:** S0 15 min · S1 50 min · S2 35 min · S3 45 min · S4 20 min ≈ **2 h 45 min**.
 Parallel agents shorten the wall-clock time, not the total work.
