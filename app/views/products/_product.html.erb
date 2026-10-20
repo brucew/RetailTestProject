@@ -1,0 +1,5 @@
+<tr>
+  <td><%= link_to product.name, product %></td>
+  <td><%= link_to product.brand.name, product.brand %></td>
+  <td class="numeric"><%= number_with_delimiter(check_counts.fetch(product.id, 0)) %></td>
+</tr>

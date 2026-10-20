@@ -5,6 +5,35 @@ class ProductPagesTest < ActionDispatch::IntegrationTest
     @product = products(:pony_pale_ale)
   end
 
+  test "the products page lists products by name with their brand and check count" do
+    brands(:green_dragon).products.create!(name: "Dragon Ale")
+
+    get products_path
+
+    assert_response :ok
+    assert_equal ["Dragon Ale", "Dragon Stout", "Pony Pale Ale", "Pony Porter"],
+                 css_select("table.products tbody tr td:first-child").map(&:text)
+    assert_select "table.products tbody tr:first-child" do
+      assert_select "a[href=?]", brand_path(brands(:green_dragon)), text: "Green Dragon"
+      assert_select "td.numeric", "0"
+    end
+    assert_select "table.products tbody tr:nth-child(3)" do
+      assert_select "a[href=?]", product_path(@product), text: "Pony Pale Ale"
+      assert_select "td.numeric", "2"
+    end
+  end
+
+  test "the products page loads brands and check counts in a fixed number of queries" do
+    5.times do |index|
+      brand = Brand.create!(name: "Brand #{index}")
+      brand.products.create!(name: "Product #{index}")
+    end
+
+    # products, their brands, grouped check counts
+    assert_max_queries(3) { get products_path }
+    assert_select "table.products tbody tr", 8
+  end
+
   test "the product page shows the product, its brand and how many checks it has had" do
     get product_path(@product)
 

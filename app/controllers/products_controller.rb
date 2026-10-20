@@ -1,6 +1,7 @@
 class ProductsController < ApplicationController
   def index
-    @products = Product.all
+    @products = Product.includes(:brand).order(:name)
+    @check_counts = InventoryCheck.group(:product_id).count
   end
 
   def show
