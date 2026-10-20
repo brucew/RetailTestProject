@@ -198,6 +198,17 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
     assert_equal 3, InventoryAlert.count
   end
 
+  test "reconciling one pair leaves other products' alerts at the same store alone" do
+    hobbiton = stores(:hobbiton_bywater_road)
+    stale = inventory_alerts(:stout_out_at_hobbiton)
+    stale.update!(miss_count: 7)
+
+    assert_equal result(0, 0, 0), reconcile(pairs: [[hobbiton.id, products(:pony_pale_ale).id]])
+
+    assert_equal 7, stale.reload.miss_count
+    assert_equal 2, hobbiton.inventory_alerts.count
+  end
+
   test "an empty list of pairs reconciles nothing, not everything" do
     inventory_alerts(:stout_out_at_hobbiton).update!(miss_count: 7)
     miss("2025-01-01")
@@ -228,16 +239,24 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
 
   # Seq scans are disabled because on a handful of fixture rows Postgres
   # would rightly prefer them; the question is whether the index can be used.
-  test "a scoped reconcile looks up only the listed pairs' checks and alerts by index" do
-    statement = capture_sql_queries { reconcile }.grep(/scoped_pairs/).sole
+  test "a scoped reconcile reads only the listed pairs' checks, and their stores' alerts, by index" do
+    checks_plan = without_seq_scans { explain(capture_sql_queries { reconcile }.grep(/scoped_pairs/).sole) }
+    alerts_plan = without_seq_scans { InventoryAlert.where(store_id: [@store.id]).explain.inspect }
 
-    plan = InventoryAlert.transaction(requires_new: true) do
-      InventoryAlert.connection.execute("SET LOCAL enable_seqscan = off")
-      InventoryAlert.connection.select_values("EXPLAIN #{statement}").join("\n")
-    end
+    checks_lookup = "Index Scan using index_inventory_checks_on_store_product_time_presence on inventory_checks"
+    assert_match(/#{checks_lookup}\b.*\n\s*Index Cond: \(\(store_id = pair\.store_id\) AND \(product_id = pair\.product_id\)\)/,
+                 checks_plan)
+    assert_match(/index_inventory_alerts_on_store_id_and_product_id.*\n\s*Index Cond: \(store_id = /, alerts_plan)
+  end
 
-    assert_match pair_lookup("index_inventory_checks_on_store_product_time_presence", "inventory_checks"), plan
-    assert_match pair_lookup("index_inventory_alerts_on_store_id_and_product_id", "inventory_alerts"), plan
+  test "reconciling every pair of an import reads alerts without one OR term per pair" do
+    other_store = Store.create!(address: "3 Market Square, Michel Delving")
+    pairs = [[@store.id, @product.id], [other_store.id, @product.id]]
+
+    alert_reads = capture_sql_queries { reconcile(pairs:) }.grep(/FROM "inventory_alerts"/)
+
+    assert_equal 1, alert_reads.size
+    assert_no_match(/ OR /, alert_reads.sole)
   end
 
   test "the result summarizes the counts" do
@@ -269,10 +288,15 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
     InventoryAlert.where(store: @store, product: @product).order(:started_at)
   end
 
-  # An index scan whose condition is a listed pair, as EXPLAIN prints it.
-  def pair_lookup(index, table)
-    pair = /scoped_pairs(?:_\d+)?/
-    /Index Scan using #{index} on #{table}\b.*\n\s*Index Cond: \(\(store_id = #{pair}\.store_id\) AND \(product_id = #{pair}\.product_id\)\)/
+  def without_seq_scans
+    InventoryAlert.transaction(requires_new: true) do
+      InventoryAlert.connection.execute("SET LOCAL enable_seqscan = off")
+      yield
+    end
+  end
+
+  def explain(statement)
+    InventoryAlert.connection.select_values("EXPLAIN #{statement}").join("\n")
   end
 
   # Compares only the attributes each expectation names, alert by alert in

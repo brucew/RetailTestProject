@@ -28,21 +28,64 @@ module InventoryAlerts
       @pairs = pairs
     end
 
-    # Writes only what differs, so reconciling again changes nothing. One
-    # statement, so it's atomic on its own and inside a caller's transaction.
-    # Returns a Result counting the alerts created, updated and deleted.
+    # Writes only what differs, so reconciling again changes nothing. Runs in
+    # one transaction (joining a caller's, such as an import's). Returns a
+    # Result counting the alerts created, updated and deleted.
     def reconcile
-      counts = InventoryAlert.connection.select_one(reconcile_sql, "#{self.class.name} Reconcile")
-      Result.new(created: counts.fetch("created"), updated: counts.fetch("updated"), deleted: counts.fetch("deleted"))
+      InventoryAlert.transaction do
+        desired = desired_alerts
+        stored = stored_alerts
+        created = desired.except(*stored.keys)
+        changed = desired.slice(*stored.keys).reject { |start_check_id, alert| stored[start_check_id] == alert }
+        stale_start_check_ids = stored.keys - desired.keys
+
+        write(created.values, changed.values, stale_start_check_ids)
+        Result.new(created: created.size, updated: changed.size, deleted: stale_start_check_ids.size)
+      end
     end
 
     private
 
-    def reconcile_sql
-      InventoryAlert.sanitize_sql_array([reconcile_statement, {
+    # The attributes the checks determine, keyed by the streak's first check.
+    def desired_alerts
+      rows = InventoryAlert.connection.select_all(desired_alerts_sql, "#{self.class.name} Desired Alerts")
+      rows.cast_values.to_h do |values|
+        alert = rows.columns.zip(values).to_h
+        [alert.fetch("streak_start_check_id"), alert]
+      end
+    end
+
+    # The alerts stored for the pairs in scope, in the same shape. Read by
+    # store and narrowed to the listed pairs in Ruby: Rails 7.1 turns
+    # where([:store_id, :product_id] => pairs) into one OR term per pair,
+    # which Postgres can't serve from an index (over 80 s for an import's
+    # 22,826 pairs).
+    def stored_alerts
+      scope = @pairs.nil? ? InventoryAlert.all : InventoryAlert.where(store_id: @pairs.map(&:first).uniq)
+      listed = @pairs&.to_set
+      scope.pluck(*alert_attributes).each_with_object({}) do |values, alerts|
+        alert = alert_attributes.zip(values).to_h
+        next if listed && !listed.include?(alert.values_at("store_id", "product_id"))
+
+        alerts[alert.fetch("streak_start_check_id")] = alert
+      end
+    end
+
+    # Everything on an alert except its own id and timestamps, which Rails sets.
+    def alert_attributes
+      @alert_attributes ||= InventoryAlert.column_names - %w[id created_at updated_at]
+    end
+
+    def write(created, changed, stale_start_check_ids)
+      InventoryAlert.insert_all(created) if created.any?
+      InventoryAlert.upsert_all(changed, unique_by: :streak_start_check_id) if changed.any?
+      InventoryAlert.where(streak_start_check_id: stale_start_check_ids).delete_all if stale_start_check_ids.any?
+    end
+
+    def desired_alerts_sql
+      InventoryAlert.sanitize_sql_array([desired_alerts_query, {
         store_ids: encode_array(@pairs.to_a.map(&:first)),
-        product_ids: encode_array(@pairs.to_a.map(&:last)),
-        now: Time.current
+        product_ids: encode_array(@pairs.to_a.map(&:last))
       }])
     end
 
@@ -51,17 +94,19 @@ module InventoryAlerts
       PG::TextEncoder::Array.new.encode(ids)
     end
 
-    # Which checks and alerts are in scope: all of them for a full rebuild,
-    # else those of the listed pairs. This is fixed SQL, never a value. It's
-    # chosen here rather than written as one "every pair OR listed pair"
-    # condition because Postgres can't turn a subquery under OR into a join:
-    # a single-pair reconcile then scans every check (90 ms on the full data,
-    # against 1 ms through the unique index).
+    # Which checks are in scope: all of them for a full rebuild, else those of
+    # the listed pairs. This is fixed SQL, never a value. It's chosen here
+    # rather than written as one "every pair OR listed pair" condition because
+    # Postgres can't turn a subquery under OR into a join: a single-pair
+    # reconcile then scans every check (90 ms on the full data, against 1 ms
+    # through the unique index).
     def pair_scope
       @pairs.nil? ? "TRUE" : "(store_id, product_id) IN (SELECT store_id, product_id FROM scoped_pairs)"
     end
 
-    def reconcile_statement
+    # Window functions find each timeline's runs, which ActiveRecord can't
+    # express; this is the one place the reconciler writes SQL.
+    def desired_alerts_query
       <<~SQL
         WITH scoped_pairs AS (
           SELECT * FROM unnest(:store_ids::bigint[], :product_ids::bigint[]) AS pair (store_id, product_id)
@@ -106,63 +151,22 @@ module InventoryAlerts
                  LEAD(first_event_times[1]) OVER following_run AS next_run_started_at
           FROM runs
           WINDOW following_run AS (PARTITION BY store_id, product_id ORDER BY run_number)
-        ),
+        )
 
         -- The alerts the checks imply: every out-of-stock run of two or more
         -- checks, raised at its second miss (D5). Addressed to the product's
         -- brand (A9).
-        desired_alerts AS (
-          SELECT products.brand_id, streaks.store_id, streaks.product_id,
-                 streaks.first_check_ids[1] AS streak_start_check_id,
-                 streaks.first_check_ids[2] AS triggering_check_id,
-                 streaks.next_run_first_check_id AS resolving_check_id,
-                 streaks.first_event_times[1] AS started_at,
-                 streaks.first_event_times[2] AS triggered_at,
-                 streaks.next_run_started_at AS resolved_at,
-                 streaks.check_count AS miss_count
-          FROM runs_with_next AS streaks
-          JOIN products ON products.id = streaks.product_id
-          WHERE NOT streaks.in_stock AND streaks.check_count >= 2
-        ),
-
-        -- A streak is identified by its first miss. Rows that already match are
-        -- skipped, so they keep their updated_at and aren't counted. A fresh
-        -- insert has no xmax; an updated row's xmax is this transaction.
-        upserted_alerts AS (
-          INSERT INTO inventory_alerts (brand_id, store_id, product_id, streak_start_check_id, triggering_check_id,
-                                        resolving_check_id, started_at, triggered_at, resolved_at, miss_count,
-                                        created_at, updated_at)
-          SELECT desired_alerts.*, :now, :now FROM desired_alerts
-          ON CONFLICT (streak_start_check_id) DO UPDATE
-            SET brand_id = excluded.brand_id, store_id = excluded.store_id, product_id = excluded.product_id,
-                triggering_check_id = excluded.triggering_check_id, resolving_check_id = excluded.resolving_check_id,
-                started_at = excluded.started_at, triggered_at = excluded.triggered_at,
-                resolved_at = excluded.resolved_at, miss_count = excluded.miss_count, updated_at = excluded.updated_at
-            WHERE (inventory_alerts.brand_id, inventory_alerts.store_id, inventory_alerts.product_id,
-                   inventory_alerts.triggering_check_id, inventory_alerts.resolving_check_id,
-                   inventory_alerts.started_at, inventory_alerts.triggered_at, inventory_alerts.resolved_at,
-                   inventory_alerts.miss_count)
-                  IS DISTINCT FROM
-                  (excluded.brand_id, excluded.store_id, excluded.product_id,
-                   excluded.triggering_check_id, excluded.resolving_check_id,
-                   excluded.started_at, excluded.triggered_at, excluded.resolved_at,
-                   excluded.miss_count)
-          RETURNING xmax = 0 AS created
-        ),
-
-        -- Alerts in scope whose streak the checks no longer contain, e.g. a late
-        -- in-stock check that splits it, or a late earlier miss that moves its
-        -- start. The upsert never touches these rows, so both can run at once.
-        deleted_alerts AS (
-          DELETE FROM inventory_alerts
-          WHERE #{pair_scope}
-            AND streak_start_check_id NOT IN (SELECT streak_start_check_id FROM desired_alerts)
-          RETURNING 1
-        )
-
-        SELECT (SELECT COUNT(*) FROM upserted_alerts WHERE created) AS created,
-               (SELECT COUNT(*) FROM upserted_alerts WHERE NOT created) AS updated,
-               (SELECT COUNT(*) FROM deleted_alerts) AS deleted
+        SELECT products.brand_id, streaks.store_id, streaks.product_id,
+               streaks.first_check_ids[1] AS streak_start_check_id,
+               streaks.first_check_ids[2] AS triggering_check_id,
+               streaks.next_run_first_check_id AS resolving_check_id,
+               streaks.first_event_times[1] AS started_at,
+               streaks.first_event_times[2] AS triggered_at,
+               streaks.next_run_started_at AS resolved_at,
+               streaks.check_count AS miss_count
+        FROM runs_with_next AS streaks
+        JOIN products ON products.id = streaks.product_id
+        WHERE NOT streaks.in_stock AND streaks.check_count >= 2
       SQL
     end
   end

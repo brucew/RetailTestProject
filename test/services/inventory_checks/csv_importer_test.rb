@@ -16,7 +16,7 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
 
   test "rows are written in batches, one INSERT per batch" do
     inserts = []
-    counter = ->(*, payload) { inserts << payload[:sql] if payload[:sql].start_with?("INSERT") }
+    counter = ->(*, payload) { inserts << payload[:sql] if payload[:sql].start_with?(%(INSERT INTO "inventory_checks")) }
 
     ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { import("valid.csv", batch_size: 3) }
 
