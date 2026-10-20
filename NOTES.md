@@ -10,7 +10,7 @@ _To be completed in the final step._
 
 ## What I found in the starting point
 
-### Data (`tracking_events.csv`)
+### Data (delivered as `tracking_events.csv`, now `inventory_checks.csv`)
 
 - 1,000,000 rows, 101 stores and 226 products, all matching `db/seeds.rb` exactly.
 - Dates are **date-only** (2024-12-05 to 2025-12-05), stored as midnight UTC.
@@ -105,8 +105,9 @@ The result reports rows read, inserted, duplicates and rejected, with sample rej
 faster, but it's mostly raw SQL and makes per-row rejection reporting harder. At 33 s for 1M rows,
 `insert_all` is fast enough and stays idiomatic.
 
-`inventory_checks:import` reads `inventory_checks.csv` and falls back to the original
-`tracking_events.csv`. `tracking_events:import` contains no logic of its own; it just runs the
+`inventory_checks:import` reads `inventory_checks.csv`, and falls back to `tracking_events.csv` if
+that file doesn't exist. The repository's data file is now named `inventory_checks.csv`; anyone with
+the original `tracking_events.csv` can still import it unchanged. `tracking_events:import` contains no logic of its own; it just runs the
 per-type import tasks.
 
 ### Pages: paginate, eager-load, count with one grouped query
