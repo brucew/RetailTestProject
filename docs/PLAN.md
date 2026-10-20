@@ -368,7 +368,7 @@ What ships: the submission itself.
 ## 8. Progress
 
 - [x] Step 0 — Foundation
-- [ ] Step 1 — Rename, schema, importer, pages
+- [x] Step 1 — Rename, schema, importer, pages
 - [ ] Step 2 — Price tracking
 - [ ] Step 3 — Alert system
 - [ ] Step 4 — Submission
@@ -395,3 +395,14 @@ What ships: the submission itself.
 - Once Step 1 adds unique indexes on the catalog keys, seeds could use `insert_all` with
   `unique_by` (insert-only, never upsert, so an existing product's brand is never rewritten). *(0.C)*
 - The test suite runs in one process until it has 50+ tests; parallel workers start after that. *(0.B)*
+- Keyset pagination (Pagy keyset) if per-store histories grow far past 10k. Deep `OFFSET` is ~10 ms
+  today. *(1.C)*
+- Indexes on `(store_id, event_time DESC, id DESC)` and the product equivalent would remove the
+  incremental sort for the `id` tie-break. Negligible today (0.1 ms). *(1.C)*
+- A per-store/per-product rollup refreshed by the importer, if the index pages' grouped counts
+  (~40 ms on 960k rows) become a problem. *(1.C)*
+- `COPY` into a temp table plus `INSERT … SELECT … ON CONFLICT DO NOTHING` would likely cut the
+  import from ~33 s to ~10–15 s (estimate). ~11 s is Ruby building `insert_all` SQL. *(1.B)*
+- Add `*.csv -text` to `.gitattributes` so committed CSV fixtures keep their line endings. *(1.B)*
+- Step 2: the price importer can reuse the importer's streaming, batching, counting and `Result`
+  shape, plus the `locate_source` pattern. That's the point to extract them. *(1.B)*
