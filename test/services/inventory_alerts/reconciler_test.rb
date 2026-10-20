@@ -226,6 +226,20 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
                  InventoryAlert.order(:started_at).map(&:streak_start_check)
   end
 
+  # Seq scans are disabled because on a handful of fixture rows Postgres
+  # would rightly prefer them; the question is whether the index can be used.
+  test "a scoped reconcile looks up only the listed pairs' checks and alerts by index" do
+    statement = capture_sql_queries { reconcile }.grep(/scoped_pairs/).sole
+
+    plan = InventoryAlert.transaction(requires_new: true) do
+      InventoryAlert.connection.execute("SET LOCAL enable_seqscan = off")
+      InventoryAlert.connection.select_values("EXPLAIN #{statement}").join("\n")
+    end
+
+    assert_match pair_lookup("index_inventory_checks_on_store_product_time_presence", "inventory_checks"), plan
+    assert_match pair_lookup("index_inventory_alerts_on_store_id_and_product_id", "inventory_alerts"), plan
+  end
+
   test "the result summarizes the counts" do
     assert_equal "alerts created=1 updated=2 deleted=3", result(1, 2, 3).summary
   end
@@ -253,6 +267,12 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
 
   def alerts
     InventoryAlert.where(store: @store, product: @product).order(:started_at)
+  end
+
+  # An index scan whose condition is a listed pair, as EXPLAIN prints it.
+  def pair_lookup(index, table)
+    pair = /scoped_pairs(?:_\d+)?/
+    /Index Scan using #{index} on #{table}\b.*\n\s*Index Cond: \(\(store_id = #{pair}\.store_id\) AND \(product_id = #{pair}\.product_id\)\)/
   end
 
   # Compares only the attributes each expectation names, alert by alert in

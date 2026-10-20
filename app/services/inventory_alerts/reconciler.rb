@@ -40,7 +40,6 @@ module InventoryAlerts
 
     def reconcile_sql
       InventoryAlert.sanitize_sql_array([reconcile_statement, {
-        every_pair: @pairs.nil?,
         store_ids: encode_array(@pairs.to_a.map(&:first)),
         product_ids: encode_array(@pairs.to_a.map(&:last)),
         now: Time.current
@@ -52,9 +51,16 @@ module InventoryAlerts
       PG::TextEncoder::Array.new.encode(ids)
     end
 
-    # Each scope test reads ":every_pair OR <pair is listed>". The value is
-    # bound as a literal, so Postgres folds it away when planning: a full
-    # rebuild scans every check and a scoped run probes only the listed pairs.
+    # Which checks and alerts are in scope: all of them for a full rebuild,
+    # else those of the listed pairs. This is fixed SQL, never a value. It's
+    # chosen here rather than written as one "every pair OR listed pair"
+    # condition because Postgres can't turn a subquery under OR into a join:
+    # a single-pair reconcile then scans every check (90 ms on the full data,
+    # against 1 ms through the unique index).
+    def pair_scope
+      @pairs.nil? ? "TRUE" : "(store_id, product_id) IN (SELECT store_id, product_id FROM scoped_pairs)"
+    end
+
     def reconcile_statement
       <<~SQL
         WITH scoped_pairs AS (
@@ -68,7 +74,7 @@ module InventoryAlerts
           SELECT id, store_id, product_id, event_time, inventory_present,
                  inventory_present IS DISTINCT FROM LAG(inventory_present) OVER pair_timeline AS starts_run
           FROM inventory_checks
-          WHERE :every_pair OR (store_id, product_id) IN (SELECT store_id, product_id FROM scoped_pairs)
+          WHERE #{pair_scope}
           WINDOW pair_timeline AS (PARTITION BY store_id, product_id ORDER BY event_time, id)
         ),
 
@@ -149,7 +155,7 @@ module InventoryAlerts
         -- start. The upsert never touches these rows, so both can run at once.
         deleted_alerts AS (
           DELETE FROM inventory_alerts
-          WHERE (:every_pair OR (store_id, product_id) IN (SELECT store_id, product_id FROM scoped_pairs))
+          WHERE #{pair_scope}
             AND streak_start_check_id NOT IN (SELECT streak_start_check_id FROM desired_alerts)
           RETURNING 1
         )
