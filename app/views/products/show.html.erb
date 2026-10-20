@@ -9,6 +9,8 @@
 
 <%= render "products/current_prices", current_prices: @current_prices %>
 
+<%= render "products/price_history", pagy: @price_pagy, price_checks: @price_checks %>
+
 <h2 id="inventory-checks">Inventory checks, newest first</h2>
 
 <% if @pagy.count.zero? %>

@@ -1,0 +1,22 @@
+<h2 id="price-history">Price history, newest first</h2>
+
+<% if pagy.count.zero? %>
+  <p class="empty-state">No price checks have been recorded for this product.</p>
+<% else %>
+  <div class="table-scroll">
+    <table class="data-table price-checks">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th class="numeric">Price</th>
+          <th>Store</th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= render partial: "products/price_check", collection: price_checks %>
+      </tbody>
+    </table>
+  </div>
+
+  <%= render "shared/pagination", pagy:, anchor: "price-history" %>
+<% end %>
