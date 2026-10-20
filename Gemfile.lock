@@ -157,6 +157,7 @@ GEM
       racc (~> 1.4)
     nokogiri (1.18.10-x86_64-linux-gnu)
       racc (~> 1.4)
+    pagy (9.4.0)
     pg (1.6.2-aarch64-linux)
     pg (1.6.2-arm64-darwin)
     pg (1.6.2-x86_64-linux)
@@ -271,6 +272,7 @@ DEPENDENCIES
   debug
   importmap-rails
   jbuilder
+  pagy (~> 9.4)
   pg (~> 1.1)
   puma (>= 5.0)
   rails (~> 7.1.6)

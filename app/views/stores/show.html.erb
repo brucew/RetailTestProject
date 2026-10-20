@@ -1,33 +1,30 @@
-<h1>Store</h1>
+<h1><%= @store.address %></h1>
 
-<p>
-  <strong>Address:</strong>
-  <%= @store.address %>
-</p>
+<dl class="summary">
+  <dt>Inventory checks</dt>
+  <dd><%= number_with_delimiter(@pagy.count) %></dd>
+</dl>
 
-<p>
-  <strong>Total Inventory Checks:</strong>
-  <%= @store.inventory_checks.size %>
-</p>
+<h2>Inventory checks, newest first</h2>
 
-<h2>Inventory Checks</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Date</th>
-      <th>Inventory</th>
-      <th>Product</th>
-      <th>Brand</th>
-    </tr>
-  </thead>
-  <tbody>
-    <% @store.inventory_checks.each do |event| %>
-      <tr>
-        <td><%= check_date_tag(event) %></td>
-        <td><%= inventory_status_tag(event) %></td>
-        <td><%= link_to event.product.name, product_path(event.product) %></td>
-        <td><%= event.product.brand&.name %></td>
-      </tr>
-    <% end %>
-  </tbody>
-</table>
+<% if @pagy.count.zero? %>
+  <p class="empty-state">No inventory checks have been recorded at this store.</p>
+<% else %>
+  <div class="table-scroll">
+    <table class="data-table inventory-checks">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Inventory</th>
+          <th>Product</th>
+          <th>Brand</th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= render partial: "stores/inventory_check", collection: @inventory_checks %>
+      </tbody>
+    </table>
+  </div>
+
+  <%= render "shared/pagination", pagy: @pagy %>
+<% end %>

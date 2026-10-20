@@ -23,6 +23,9 @@ gem "turbo-rails"
 # Hotwire's modest JavaScript framework [https://stimulus.hotwired.dev]
 gem "stimulus-rails"
 
+# Fast, lightweight pagination; 9.x is the last line supporting Ruby 3.2 [https://github.com/ddnexus/pagy]
+gem "pagy", "~> 9.4"
+
 # Build JSON APIs with ease [https://github.com/rails/jbuilder]
 gem "jbuilder"
 

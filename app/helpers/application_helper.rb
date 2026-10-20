@@ -1,4 +1,6 @@
 module ApplicationHelper
+  include Pagy::Frontend
+
   # Links to a top-level section, marked as the current page (for styling and
   # screen readers) while any page of that section's controller is shown.
   def section_link_to(name, path, section)
