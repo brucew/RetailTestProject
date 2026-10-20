@@ -1,0 +1,6 @@
+<tr>
+  <td><%= link_to current_price.product.name, current_price.product %></td>
+  <td><%= link_to current_price.product.brand.name, current_price.product.brand %></td>
+  <td class="numeric"><%= format_price(current_price.price_cents) %></td>
+  <td><%= check_date_tag(current_price) %></td>
+</tr>

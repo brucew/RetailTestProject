@@ -1,4 +1,5 @@
+<%# On a page holding several lists, callers pass a fragment so page links return to their list's heading. %>
 <div class="pagination">
   <%== pagy_info(pagy) %>
-  <%== pagy_nav(pagy) if pagy.pages > 1 %>
+  <%== pagy_nav(pagy, fragment: local_assigns[:fragment]) if pagy.pages > 1 %>
 </div>

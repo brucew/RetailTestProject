@@ -1,0 +1,32 @@
+<h1>Price history</h1>
+
+<dl class="summary">
+  <dt>Product</dt>
+  <dd><%= link_to @product.name, @product %></dd>
+  <dt>Price checks</dt>
+  <dd><%= number_with_delimiter(@pagy.count) %></dd>
+</dl>
+
+<%# The product page loads this frame lazily, and its page links stay inside it. %>
+<%= turbo_frame_tag "price_history" do %>
+  <% if @pagy.count.zero? %>
+    <p class="empty-state">No price checks have been recorded for this product.</p>
+  <% else %>
+    <div class="table-scroll">
+      <table class="data-table price-checks">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th class="numeric">Price</th>
+            <th>Store</th>
+          </tr>
+        </thead>
+        <tbody>
+          <%= render @price_checks %>
+        </tbody>
+      </table>
+    </div>
+
+    <%= render "shared/pagination", pagy: @pagy %>
+  <% end %>
+<% end %>
