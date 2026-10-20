@@ -1,28 +1,16 @@
 <h1>Products</h1>
 
-<table>
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Brand</th>
-      <th>Inventory Checks</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    <% @products.each do |product| %>
+<div class="table-scroll">
+  <table class="data-table products">
+    <thead>
       <tr>
-        <td><%= product.name %></td>
-        <td><%= product.brand&.name %></td>
-        <td><%= product.inventory_checks.size %></td>
-        <td><%= link_to "View", product_path(product) %></td>
+        <th>Name</th>
+        <th>Brand</th>
+        <th class="numeric">Inventory checks</th>
       </tr>
-    <% end %>
-  </tbody>
-</table>
-
-<nav>
-  <%= link_to "Brands", brands_path %> |
-  <%= link_to "Stores", stores_path %>
-</nav>
-
+    </thead>
+    <tbody>
+      <%= render partial: "products/product", collection: @products, locals: { check_counts: @check_counts } %>
+    </tbody>
+  </table>
+</div>

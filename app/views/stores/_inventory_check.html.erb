@@ -1,0 +1,6 @@
+<tr>
+  <td><%= check_date_tag(inventory_check) %></td>
+  <td><%= inventory_status_tag(inventory_check) %></td>
+  <td><%= link_to inventory_check.product.name, inventory_check.product %></td>
+  <td><%= link_to inventory_check.product.brand.name, inventory_check.product.brand %></td>
+</tr>

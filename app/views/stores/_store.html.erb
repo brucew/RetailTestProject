@@ -1,0 +1,4 @@
+<tr>
+  <td><%= link_to store.address, store %></td>
+  <td class="numeric"><%= number_with_delimiter(check_counts.fetch(store.id, 0)) %></td>
+</tr>

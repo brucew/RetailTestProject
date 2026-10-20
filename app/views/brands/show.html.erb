@@ -1,33 +1,26 @@
 <h1><%= @brand.name %></h1>
 
-<p>
-  <strong>Total Products:</strong>
-  <%= @brand.products.size %>
-</p>
+<dl class="summary">
+  <dt>Products</dt>
+  <dd><%= number_with_delimiter(@products.size) %></dd>
+</dl>
 
 <h2>Products</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Name</th>
-      <th>Inventory Checks</th>
-      <th></th>
-    </tr>
-  </thead>
-  <tbody>
-    <% @brand.products.each do |product| %>
-      <tr>
-        <td><%= product.name %></td>
-        <td><%= product.inventory_checks.size %></td>
-        <td><%= link_to "View Product", product_path(product) %></td>
-      </tr>
-    <% end %>
-  </tbody>
-</table>
 
-<nav>
-  <%= link_to "Back to Brands", brands_path %> |
-  <%= link_to "Products", products_path %> |
-  <%= link_to "Stores", stores_path %>
-</nav>
-
+<% if @products.empty? %>
+  <p class="empty-state">This brand has no products yet.</p>
+<% else %>
+  <div class="table-scroll">
+    <table class="data-table products">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th class="numeric">Inventory checks</th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= render partial: "brands/product", collection: @products, as: :product, locals: { check_counts: @check_counts } %>
+      </tbody>
+    </table>
+  </div>
+<% end %>
