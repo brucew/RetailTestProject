@@ -369,7 +369,7 @@ What ships: the submission itself.
 
 - [x] Step 0 — Foundation
 - [x] Step 1 — Rename, schema, importer, pages
-- [ ] Step 2 — Price tracking
+- [ ] Step 2 — Price tracking (awaiting Bruce's review)
 - [ ] Step 3 — Alert system
 - [ ] Step 4 — Submission
 
@@ -406,3 +406,13 @@ What ships: the submission itself.
 - Add `*.csv -text` to `.gitattributes` so committed CSV fixtures keep their line endings. *(1.B)*
 - Step 2: the price importer can reuse the importer's streaming, batching, counting and `Result`
   shape, plus the `locate_source` pattern. That's the point to extract them. *(1.B)*
+
+- Cache the current-price row partials (`render collection:, cached: true`) if the store page needs
+  to be faster. ~95% of its time is rendering, not SQL. *(2.C)*
+- If price data grows ~10x, add `(product_id, store_id, event_time DESC, id DESC) INCLUDE
+  (price_cents)` and `(store_id, product_id, event_time DESC, id DESC)` so the latest-price
+  queries become ordered index scans with no sort. Today they take ~1.5 ms. *(2.C)*
+- Generalize `test/support/inventory_check_history.rb` into a check-history helper that also
+  covers prices, wired up in `test_helper`. *(2.C)*
+- A COPY-based import path in `CsvCheckImporter` would speed up both importers at once. Most of
+  the time is Ruby building `insert_all` SQL. *(2.B)*
