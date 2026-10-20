@@ -7,6 +7,8 @@
   <dd><%= number_with_delimiter(@pagy.count) %></dd>
 </dl>
 
+<%= render "products/current_prices", current_prices: @current_prices %>
+
 <h2 id="inventory-checks">Inventory checks, newest first</h2>
 
 <% if @pagy.count.zero? %>
