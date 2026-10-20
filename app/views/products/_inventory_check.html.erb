@@ -1,5 +1,5 @@
 <tr>
-  <td><%= check_date_tag(inventory_check) %></td>
+  <td><%= utc_date_tag(inventory_check.event_time) %></td>
   <td><%= inventory_status_tag(inventory_check) %></td>
   <td><%= link_to inventory_check.store.address, inventory_check.store %></td>
 </tr>

@@ -1,0 +1,36 @@
+/* A row of GET filter controls above a list; wraps onto several lines on a phone. */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: calc(var(--space) / 2) var(--space);
+  margin: var(--space) 0;
+}
+
+.filters__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.filters__field label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+
+.filters select,
+.filters__submit {
+  min-height: 2.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.25rem;
+  font: inherit;
+}
+
+.filters__submit {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+  cursor: pointer;
+}

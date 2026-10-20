@@ -1,0 +1,35 @@
+<h1>Inventory alerts</h1>
+
+<dl class="summary">
+  <dt>Alerts</dt>
+  <dd><%= number_with_delimiter(@pagy.count) %></dd>
+</dl>
+
+<%= render "inventory_alerts/filters", brands: @brands, brand_id: params[:brand_id], status: params[:status] %>
+
+<% if @pagy.count.zero? %>
+  <p class="empty-state">No alerts match these filters.</p>
+<% else %>
+  <div class="table-scroll">
+    <table class="data-table inventory-alerts">
+      <thead>
+        <tr>
+          <th>Raised on</th>
+          <th>Status</th>
+          <th>Brand</th>
+          <th>Product</th>
+          <th>Store</th>
+          <th class="numeric">Misses</th>
+          <th>Started on</th>
+          <th>Resolved on</th>
+          <th><span class="visually-hidden">Details</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= render @inventory_alerts %>
+      </tbody>
+    </table>
+  </div>
+
+  <%= render "shared/pagination", pagy: @pagy %>
+<% end %>

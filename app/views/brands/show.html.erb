@@ -3,6 +3,8 @@
 <dl class="summary">
   <dt>Products</dt>
   <dd><%= number_with_delimiter(@products.size) %></dd>
+  <dt>Open alerts</dt>
+  <dd><%= open_alerts_link(@brand, @open_alert_count) %></dd>
 </dl>
 
 <h2>Products</h2>

@@ -10,6 +10,7 @@ Rails.application.routes.draw do
   end
   resources :stores, only: [:index, :show]
   resources :brands, only: [:index, :show]
+  resources :inventory_alerts, only: %i[index show]
 
   # Defines the root path route ("/")
   root "stores#index"
