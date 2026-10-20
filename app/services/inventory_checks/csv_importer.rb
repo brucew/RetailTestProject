@@ -9,6 +9,7 @@ module InventoryChecks
   # (A5): a file that can't be read leaves the table as it was.
   class CsvImporter
     class MissingHeadersError < StandardError; end
+    class SourceNotFoundError < StandardError; end
 
     Result = Data.define(:rows_read, :inserted, :duplicates, :rejected, :rejection_samples) do
       def summary
@@ -17,6 +18,19 @@ module InventoryChecks
     end
 
     Rejection = Data.define(:line, :reason)
+
+    # The file an import reads (D14): an explicit path wins; otherwise
+    # inventory_checks.csv in the app root, falling back to the legacy
+    # tracking_events.csv. Raises SourceNotFoundError naming every path tried.
+    def self.locate_source(explicit_path = nil, root: Rails.root)
+      candidates = if explicit_path
+                     [Pathname(explicit_path)]
+                   else
+                     %w[inventory_checks.csv tracking_events.csv].map { |name| Pathname(root).join(name) }
+                   end
+      candidates.find(&:exist?) or
+        raise SourceNotFoundError, "No inventory checks CSV found. Looked for:\n  #{candidates.join("\n  ")}"
+    end
 
     def initialize(path, batch_size: 5_000, logger: Rails.logger)
       @path = path

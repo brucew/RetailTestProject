@@ -154,7 +154,59 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
                      Time.zone.local(2025, 2, 22), false]
   end
 
+  test "an explicit source path is used even when the default files exist" do
+    in_app_root_with("inventory_checks.csv", "tracking_events.csv", "elsewhere.csv") do |root|
+      explicit_path = root.join("elsewhere.csv")
+
+      assert_equal explicit_path, InventoryChecks::CsvImporter.locate_source(explicit_path, root:)
+    end
+  end
+
+  test "an explicit source path that doesn't exist is reported, without falling back to the defaults" do
+    in_app_root_with("inventory_checks.csv") do |root|
+      error = assert_raises(InventoryChecks::CsvImporter::SourceNotFoundError) do
+        InventoryChecks::CsvImporter.locate_source(root.join("missing.csv"), root:)
+      end
+
+      assert_equal "No inventory checks CSV found. Looked for:\n  #{root.join('missing.csv')}", error.message
+    end
+  end
+
+  test "without a path, inventory_checks.csv in the app root is preferred over tracking_events.csv" do
+    in_app_root_with("inventory_checks.csv", "tracking_events.csv") do |root|
+      assert_equal root.join("inventory_checks.csv"), InventoryChecks::CsvImporter.locate_source(root:)
+    end
+  end
+
+  test "without a path or inventory_checks.csv, the legacy tracking_events.csv is used" do
+    in_app_root_with("tracking_events.csv") do |root|
+      assert_equal root.join("tracking_events.csv"), InventoryChecks::CsvImporter.locate_source(root:)
+    end
+  end
+
+  test "with no source file at all, both default paths are reported" do
+    in_app_root_with do |root|
+      error = assert_raises(InventoryChecks::CsvImporter::SourceNotFoundError) do
+        InventoryChecks::CsvImporter.locate_source(root:)
+      end
+
+      assert_equal <<~MESSAGE.chomp, error.message
+        No inventory checks CSV found. Looked for:
+          #{root.join('inventory_checks.csv')}
+          #{root.join('tracking_events.csv')}
+      MESSAGE
+    end
+  end
+
   private
+
+  def in_app_root_with(*file_names)
+    Dir.mktmpdir do |dir|
+      root = Pathname(dir)
+      file_names.each { |name| FileUtils.touch(root.join(name)) }
+      yield root
+    end
+  end
 
   def import(file_name, batch_size: 5_000)
     InventoryChecks::CsvImporter.new(file_fixture("inventory_checks/#{file_name}"),
