@@ -369,7 +369,7 @@ What ships: the submission itself.
 
 - [x] Step 0 — Foundation
 - [x] Step 1 — Rename, schema, importer, pages
-- [ ] Step 2 — Price tracking (awaiting Bruce's review)
+- [x] Step 2 — Price tracking
 - [ ] Step 3 — Alert system
 - [ ] Step 4 — Submission
 
