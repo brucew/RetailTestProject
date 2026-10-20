@@ -55,8 +55,9 @@ class BrandPagesTest < ActionDispatch::IntegrationTest
                                        inventory_present: true)
     end
 
-    # brand, its products, grouped check counts, open-alert count
-    assert_max_queries(4) { get brand_path(@brand) }
+    # brand, product count, whether it has products, its products,
+    # grouped check counts, open-alert count
+    assert_max_queries(6) { get brand_path(@brand) }
     assert_select "table.products tbody tr", 7
   end
 
