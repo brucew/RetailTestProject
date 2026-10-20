@@ -7,6 +7,10 @@ require "csv"
 # index (D6, A4), so a re-run inserts nothing. The whole file is one
 # transaction (A5): a file that can't be read leaves the table as it was.
 #
+# A kind of check whose data feeds derived records (inventory alerts) brings
+# them up to date in that same transaction by overriding
+# #reconcile_derived_records.
+#
 # Each kind of check is a subclass that declares what it imports:
 #
 #   class PriceChecks::CsvImporter < CsvCheckImporter
@@ -19,9 +23,11 @@ class CsvCheckImporter
   class MissingHeadersError < Error; end
   class SourceNotFoundError < Error; end
 
-  Result = Data.define(:rows_read, :inserted, :duplicates, :rejected, :rejection_samples) do
+  # derived_records:: what #reconcile_derived_records returned, or nil.
+  Result = Data.define(:rows_read, :inserted, :duplicates, :rejected, :rejection_samples, :derived_records) do
     def summary
-      "rows read=#{rows_read} inserted=#{inserted} duplicates=#{duplicates} rejected=#{rejected}"
+      checks = "rows read=#{rows_read} inserted=#{inserted} duplicates=#{duplicates} rejected=#{rejected}"
+      [checks, derived_records&.summary].compact.join("; ")
     end
   end
 
@@ -83,11 +89,31 @@ class CsvCheckImporter
     @rejection_samples = []
     @parser = self.class.row_parser_class.new
 
-    self.class.check_class.transaction { each_batch { |batch| @inserted += insert(batch) } }
+    self.class.check_class.transaction do
+      changed_pairs = insert_rows
+      @derived_records = reconcile_derived_records(changed_pairs)
+    end
     result.tap { |imported| log(imported) }
   end
 
   private
+
+  # Returns the [store_id, product_id] pairs that gained a check.
+  def insert_rows
+    changed_pairs = Set.new
+    each_batch do |batch|
+      inserted_pairs = insert(batch)
+      @inserted += inserted_pairs.size
+      changed_pairs.merge(inserted_pairs)
+    end
+    changed_pairs.to_a
+  end
+
+  # Brings records derived from the checks up to date for the pairs that
+  # gained a check. It runs inside the import's transaction, so a failed
+  # import leaves them as they were too. Returns an object with #summary for
+  # the result, or nil when nothing derives from this kind of check.
+  def reconcile_derived_records(_changed_pairs) = nil
 
   def each_batch
     batch = []
@@ -129,17 +155,19 @@ class CsvCheckImporter
     nil
   end
 
-  # Returns how many rows were new. Postgres also skips a row that repeats an
-  # earlier row of the same statement, so in-batch duplicates are not counted.
+  # Returns the [store_id, product_id] of each new row. Postgres also skips a
+  # row that repeats an earlier row of the same statement, so in-batch
+  # duplicates are not returned.
   def insert(batch)
-    self.class.check_class.insert_all(batch, unique_by: self.class.unique_index, returning: :id).length
+    self.class.check_class.insert_all(batch, unique_by: self.class.unique_index,
+                                             returning: %w[store_id product_id]).rows
   end
 
   # Every readable row was either inserted or turned away by the unique index,
   # whether it repeated a stored check or an earlier row of this file.
   def result
     Result.new(rows_read: @rows_read, inserted: @inserted, duplicates: @rows_read - @rejected - @inserted,
-               rejected: @rejected, rejection_samples: @rejection_samples.freeze)
+               rejected: @rejected, rejection_samples: @rejection_samples.freeze, derived_records: @derived_records)
   end
 
   def rejection_sample_limit = 5
