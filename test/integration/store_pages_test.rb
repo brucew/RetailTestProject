@@ -5,6 +5,44 @@ class StorePagesTest < ActionDispatch::IntegrationTest
     @store = stores(:bree_high_street)
   end
 
+  test "the stores page lists every store by address with its check count" do
+    get stores_path
+
+    assert_response :ok
+    assert_equal ["1 High Street, Bree", "12 Bywater Road, Hobbiton"],
+                 css_select("table.stores tbody tr td:first-child").map(&:text)
+    assert_select "table.stores tbody tr:first-child" do
+      assert_select "a[href=?]", store_path(@store)
+      assert_select "td.numeric", "2"
+    end
+  end
+
+  test "the stores page sorts a newly added store by address and shows it with no checks" do
+    Store.create!(address: "0 Ferry Lane, Bucklebury")
+
+    get stores_path
+
+    assert_select "table.stores tbody tr:first-child" do
+      assert_select "td:first-child", "0 Ferry Lane, Bucklebury"
+      assert_select "td.numeric", "0"
+    end
+  end
+
+  test "the stores page counts every store's checks in one grouped query" do
+    5.times { |index| Store.create!(address: "#{index} Long Lane, Tuckborough") }
+
+    # stores, grouped check counts
+    assert_max_queries(2) { get stores_path }
+    assert_select "table.stores tbody tr", 7
+  end
+
+  test "the root path is the stores page" do
+    get root_path
+
+    assert_response :ok
+    assert_select "h1", "Stores"
+  end
+
   test "the store page shows the store and how many checks it has had" do
     get store_path(@store)
 

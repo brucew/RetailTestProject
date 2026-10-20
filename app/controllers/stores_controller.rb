@@ -1,6 +1,7 @@
 class StoresController < ApplicationController
   def index
-    @stores = Store.all
+    @stores = Store.order(:address)
+    @check_counts = InventoryCheck.group(:store_id).count
   end
 
   def show
