@@ -7,6 +7,9 @@ class InventoryCheck < ApplicationRecord
                                               message: "is already recorded for this store, product and time" }
   validates :event_time, presence: true
 
+  # id breaks ties between same-day checks: the later CSV row is the newer check (D6).
+  scope :newest_first, -> { order(event_time: :desc, id: :desc) }
+
   # Every copy of a repeated check except the earliest (lowest id) one.
   def self.exact_duplicates
     ranked = select(:id, <<~SQL.squish)

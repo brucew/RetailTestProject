@@ -71,6 +71,14 @@ class InventoryCheckTest < ActiveSupport::TestCase
     assert_empty InventoryCheck.exact_duplicates
   end
 
+  test "newest first orders by event time, then by id for checks on the same day" do
+    same_day_later_row = new_check(event_time: inventory_checks(:pale_ale_sold_out_at_bree).event_time,
+                                   inventory_present: true).tap(&:save!)
+
+    assert_equal [same_day_later_row, inventory_checks(:pale_ale_sold_out_at_bree), inventory_checks(:pale_ale_in_stock_at_bree)],
+                 products(:pony_pale_ale).inventory_checks.newest_first.to_a
+  end
+
   private
 
   def new_check(**attributes)

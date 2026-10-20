@@ -6,8 +6,7 @@ class ProductsController < ApplicationController
 
   def show
     @product = Product.includes(:brand).find(params[:id])
-    # id breaks ties between same-day checks: the later CSV row is the newer one (D6).
-    checks = @product.inventory_checks.includes(:store).order(event_time: :desc, id: :desc)
+    checks = @product.inventory_checks.includes(:store).newest_first
     @pagy, @inventory_checks = pagy(checks)
   end
 end
