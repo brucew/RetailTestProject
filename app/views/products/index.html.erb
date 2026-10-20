@@ -5,7 +5,7 @@
     <tr>
       <th>Name</th>
       <th>Brand</th>
-      <th>Tracking Events</th>
+      <th>Inventory Checks</th>
       <th></th>
     </tr>
   </thead>
@@ -14,7 +14,7 @@
       <tr>
         <td><%= product.name %></td>
         <td><%= product.brand&.name %></td>
-        <td><%= product.tracking_events.size %></td>
+        <td><%= product.inventory_checks.size %></td>
         <td><%= link_to "View", product_path(product) %></td>
       </tr>
     <% end %>

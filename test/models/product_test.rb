@@ -5,9 +5,9 @@ class ProductTest < ActiveSupport::TestCase
     assert_equal brands(:green_dragon), products(:dragon_stout).brand
   end
 
-  test "a product lists its tracking events across checks" do
-    assert_equal [tracking_events(:pale_ale_in_stock_at_bree), tracking_events(:pale_ale_sold_out_at_bree)],
-                 products(:pony_pale_ale).tracking_events.order(:event_time).to_a
+  test "a product lists its inventory checks across checks" do
+    assert_equal [inventory_checks(:pale_ale_in_stock_at_bree), inventory_checks(:pale_ale_sold_out_at_bree)],
+                 products(:pony_pale_ale).inventory_checks.order(:event_time).to_a
   end
 
   test "a product is invalid without a brand" do

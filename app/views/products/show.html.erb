@@ -10,11 +10,11 @@
 </p>
 
 <p>
-  <strong>Total Tracking Events:</strong>
-  <%= @product.tracking_events.size %>
+  <strong>Total Inventory Checks:</strong>
+  <%= @product.inventory_checks.size %>
 </p>
 
-<h2>Tracking Events</h2>
+<h2>Inventory Checks</h2>
 <table>
   <thead>
     <tr>
@@ -24,7 +24,7 @@
     </tr>
   </thead>
   <tbody>
-    <% @product.tracking_events.each do |event| %>
+    <% @product.inventory_checks.each do |event| %>
       <tr>
         <td><%= event.event_time&.strftime("%Y-%m-%d %H:%M") %></td>
         <td><%= event.inventory_present ? "Yes" : "No" %></td>

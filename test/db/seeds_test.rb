@@ -5,7 +5,7 @@ require "test_helper"
 # seed counts can be asserted exactly rather than as deltas over fixtures.
 class SeedsTest < ActiveSupport::TestCase
   setup do
-    TrackingEvent.delete_all
+    InventoryCheck.delete_all
     Product.delete_all
     Brand.delete_all
     Store.delete_all
@@ -28,15 +28,15 @@ class SeedsTest < ActiveSupport::TestCase
     assert_equal snapshot, seeded_rows
   end
 
-  test "seeding succeeds when tracking events already reference seeded rows" do
+  test "seeding succeeds when inventory checks already reference seeded rows" do
     load_seeds
-    event = TrackingEvent.create!(product: Product.find_by!(name: "Chocolate Frogs"),
+    event = InventoryCheck.create!(product: Product.find_by!(name: "Chocolate Frogs"),
                                   store: Store.find_by!(address: "13 Honeydukes Corner, Hogsmeade Village"),
                                   inventory_present: true, event_time: Time.zone.parse("2024-03-01 09:00"))
 
     load_seeds
 
-    assert_equal [event], TrackingEvent.all.to_a
+    assert_equal [event], InventoryCheck.all.to_a
     assert_equal 226, Product.count
   end
 

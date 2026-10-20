@@ -1,6 +1,6 @@
 require "csv"
 
-module TrackingEvents
+module InventoryChecks
   class CsvImporter
     def initialize(path)
       @path = path
@@ -22,7 +22,7 @@ module TrackingEvents
         event_time       = Date.parse(row["Date"])
         inventory_present = cast_boolean(row["Inventory Present"])
 
-        TrackingEvent.create!(
+        InventoryCheck.create!(
           store: store,
           product: product,
           event_time: event_time,
@@ -32,7 +32,7 @@ module TrackingEvents
         created_count += 1
       end
 
-      Rails.logger.info "[TrackingEvents::CsvImporter] rows processed=#{row_count} created=#{created_count}"
+      Rails.logger.info "[InventoryChecks::CsvImporter] rows processed=#{row_count} created=#{created_count}"
     end
 
     private

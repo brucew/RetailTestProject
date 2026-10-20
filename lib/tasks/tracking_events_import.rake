@@ -11,9 +11,9 @@ namespace :tracking_events do
         exit 1
       end
   
-      puts "Importing tracking events from #{path}..."
+      puts "Importing inventory checks from #{path}..."
       
-      TrackingEvents::CsvImporter.new(path).call
+      InventoryChecks::CsvImporter.new(path).call
   
       puts "Done."
     end
