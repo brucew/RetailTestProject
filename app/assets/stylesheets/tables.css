@@ -35,3 +35,9 @@
 .empty-state {
   color: var(--color-muted);
 }
+
+/* Keep ISO dates and status labels on one line in narrow columns. */
+.data-table time,
+.data-table .status {
+  white-space: nowrap;
+}
