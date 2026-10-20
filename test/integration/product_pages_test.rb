@@ -61,9 +61,9 @@ class ProductPagesTest < ActionDispatch::IntegrationTest
       store.price_checks.create!(product: @product, event_time: Time.utc(2024, 4, 1), price_cents: 400 + index)
     end
 
-    # product, its brand, current prices with their stores,
-    # inventory check count, page of inventory checks, their stores
-    assert_max_queries(6) { get product_path(@product) }
+    # product, its brand, whether it has current prices, current prices with
+    # their stores, inventory check count, page of inventory checks, their stores
+    assert_max_queries(7) { get product_path(@product) }
     assert_select "table.current-prices tbody tr", 8
     assert_select "table.inventory-checks tbody tr", 8
   end
