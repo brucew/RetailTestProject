@@ -240,8 +240,11 @@ lead: git merge --no-ff step-N-<task> → step-N (tests + acceptance) → git me
 3. **No migrations.** Schema changes happen only in serial `N.A` tasks, so `db/schema.rb` never
    conflicts.
 4. Use your own test database:
-   `DATABASE_URL=postgres:///retail_test_<task> bin/rails db:test:prepare test`
-   (0.B checks that this works with parallel test workers).
+   `RAILS_ENV=test DATABASE_URL=postgres:///retail_test_<task> bin/rails db:test:prepare test`
+   **`RAILS_ENV=test` is required.** Without it, rake runs in development, `DATABASE_URL` only
+   overrides the development config, and `db:test:prepare` purges the shared
+   `retail_test_project_test` database (verified in 0.B). Parallel workers use
+   `retail_test_<task>-0…N`, created automatically. When a worktree is removed, drop its databases.
 5. Never run a full import against the shared development database. For full-data work, clone it
    (`createdb -T retail_test_project_development retail_<task>`; this needs no open connections to
    the template).
@@ -364,7 +367,7 @@ What ships: the submission itself.
 
 ## 8. Progress
 
-- [ ] Step 0 — Foundation
+- [x] Step 0 — Foundation
 - [ ] Step 1 — Rename, schema, importer, pages
 - [ ] Step 2 — Price tracking
 - [ ] Step 3 — Alert system
@@ -389,3 +392,6 @@ What ships: the submission itself.
   one email per alert would mean 30k emails on a backfill.
 - `CREATE INDEX CONCURRENTLY` / `disable_ddl_transaction!` for the index migrations in a
   zero-downtime production setting. Not needed locally.
+- Once Step 1 adds unique indexes on the catalog keys, seeds could use `insert_all` with
+  `unique_by` (insert-only, never upsert, so an existing product's brand is never rewritten). *(0.C)*
+- The test suite runs in one process until it has 50+ tests; parallel workers start after that. *(0.B)*
