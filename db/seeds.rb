@@ -1,9 +1,9 @@
 # db/seeds.rb
-
-# Clear existing data (adjust if you have dependent models like, etc.)
-Store.destroy_all
-Brand.destroy_all
-Product.destroy_all
+#
+# Idempotent: safe to re-run at any time, including after tracking events have
+# been imported. Rows are found or created by their natural key (brand name,
+# product name, store address) and never deleted, because imported events
+# reference them and the CSV importer looks them up by those exact strings.
 
 brands_products = {
   "The Prancing Pony" => [
@@ -428,20 +428,23 @@ store_addresses = [
   "2 Gotham Gazette Row, Gotham City"
 ]
 
-puts "Creating Brands and Products..."
+ActiveRecord::Base.transaction do
+  brands_products.each do |brand_name, product_names|
+    brand = Brand.find_or_create_by!(name: brand_name)
 
-brands_products.each do |brand_name, products|
-  brand = Brand.create!(name: brand_name)
+    # Products are keyed on name alone, matching the importer and the planned
+    # unique index on products.name. A product that already exists under a
+    # different brand is left untouched: seeds only add missing rows and never
+    # rewrite existing ones, so they cannot silently change data that imported
+    # events already depend on.
+    product_names.each do |product_name|
+      Product.find_or_create_by!(name: product_name) { |product| product.brand = brand }
+    end
+  end
 
-  products.each do |product_name|
-    Product.create!(name: product_name, brand: brand)
+  store_addresses.each do |address|
+    Store.find_or_create_by!(address: address)
   end
 end
 
-puts "Creating Stores..."
-
-store_addresses.each do |address|
-  Store.create!(address: address)
-end
-
-puts "Seed complete!"
+puts "Seeded: #{Brand.count} brands, #{Product.count} products, #{Store.count} stores"
