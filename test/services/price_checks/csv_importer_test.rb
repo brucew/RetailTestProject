@@ -146,6 +146,17 @@ class PriceChecks::CsvImporterTest < ActiveSupport::TestCase
     end
   end
 
+  test "a price import leaves inventory alerts alone" do
+    statements = []
+    recorder = ->(*, payload) { statements << payload[:sql] }
+
+    result = ActiveSupport::Notifications.subscribed(recorder, "sql.active_record") { import("valid.csv") }
+
+    assert_nil result.derived_records
+    assert_empty statements.grep(/inventory_alerts/)
+    assert_equal "rows read=4 inserted=4 duplicates=0 rejected=0", result.summary
+  end
+
   private
 
   def import(file_name, batch_size: 5_000)
