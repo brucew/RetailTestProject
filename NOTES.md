@@ -417,32 +417,59 @@ Top priorities, in order:
    the date helpers, and tests. I didn't do it here because the system that generates the import
    files is out of scope. On a real project I'd agree the format change with the team responsible
    for those files.
-2. **Improve the view styling considerably, probably by adding Tailwind CSS** (`tailwindcss-rails`,
-   which needs no Node with importmaps). The pages are deliberately plain, with a few hand-written
-   stylesheets. A design system would make the tables, filters and status badges much easier to
-   scan, and responsive layouts easier to maintain.
-3. **Add create API endpoints for `InventoryCheck` and `PriceCheck`**, as an alternative to bulk CSV
+2. **Add create API endpoints for `InventoryCheck` and `PriceCheck`**, as an alternative to bulk CSV
    imports. For example, authenticated `POST /api/inventory_checks` and `POST /api/price_checks`,
    validated by the models (which already match the database rules). Each inventory check would
    reconcile its own store/product pair in the same transaction, so alerts stay current
    check by check.
+3. **Add rollup tables, and keep `inventory_checks` and `price_checks` as audit tables.** Both event
+   tables only ever grow, so pages and counts that read them directly will slow down over time.
+   The rollups would be kept up to date by the same import and API paths that write the checks:
+   - current stock status per store and product
+   - current price per store and product
+   - daily or monthly counts per store, product and brand
+
+   The pages would then read small tables whose size is bounded by the catalog, not by history.
+   The event tables stay complete and append-only for auditing, history pages and alert
+   reconciles. They could also be partitioned by month.
+
+   **The alternative:** move the event tables into a database built for analytics (a columnar or
+   time-series store) and keep querying them directly there, leaving Postgres with the catalog,
+   alerts and current state.
 
 Then, given those:
 
+- **Make the alert rule explicit, centralized and easy to change.** Today "two or more consecutive
+  misses" is written in three places:
+  - the reconciler's `where(in_stock: false, check_count: 2..)`
+  - the `miss_count` validation on `InventoryAlert`
+  - the database `CHECK (miss_count >= 2)`
+
+  I'd move the rule into a single `InventoryAlert` class method (or a small rule object it
+  returns) that the reconciler's query and the validation both use. It would also define what
+  counts as consecutive (checks, or calendar days once timestamps exist), so a change like
+  "3 consecutive days" is one edit. The check constraint would be relaxed to the invariant that
+  always holds (at least one miss), so changing the rule doesn't need a migration. Because alerts
+  are derived, applying a new rule to history is one `inventory_alerts:reconcile`.
 - **A per-pair advisory lock in the reconciler**, and imports moved to background jobs. Once API
   writes can arrive while an import runs, two writers can touch the same pair, so the lock becomes
   a requirement rather than a precaution.
+- **Improve the view styling considerably, probably by adding Tailwind CSS** (`tailwindcss-rails`,
+  which needs no Node with importmaps). The pages are deliberately plain, with a few hand-written
+  stylesheets. A design system would make the tables, filters and status badges much easier to
+  scan, and responsive layouts easier to maintain.
 - **Notify brands** with a digest per brand per day (or per import), rather than one email per
   alert. A backfill would otherwise send 30k emails, and API writes would send a steady trickle.
 - **Reconcile one store at a time** if import memory becomes a constraint. It gives identical
   results while holding about 300 alerts at once instead of 30,000.
-- **Keyset pagination** if per-store histories grow far beyond 10k checks.
+- **Keyset pagination** for the history pages if per-store histories grow far beyond 10k checks.
 - **Targeted indexes as data grows:**
   - `(product_id, store_id, event_time DESC, id DESC) INCLUDE (price_cents)` for current prices
   - a partial index on open alerts
   - `(store_id, product_id, event_time, id) INCLUDE (inventory_present)` for scoped reconciles
 
-  With timestamps, the `id` tie-breaks in these become a last resort rather than routine.
+  With rollups serving the pages, these matter mainly for history pages and reconciles. With
+  timestamps, the `id` tie-breaks in these become a last resort rather than routine.
 - **A `COPY`-based path in `CsvCheckImporter`**, for large backfills only. With an API for
   incremental data, the CSV import matters less day to day.
 - **Tooling.** CI with Postgres, RuboCop (`rubocop-rails-omakase`), Bullet in test, and a
