@@ -6,7 +6,14 @@ gained. The full working plan, including how the work was split into shippable s
 
 ## Running it
 
-_To be completed in the final step._
+Setup and every command are in the [README](README.md#running-it). In short:
+
+```bash
+bundle install
+bin/rails db:create db:migrate db:seed
+bin/rails tracking_events:import   # inventory, then prices; alerts are reconciled along the way
+bin/rails server
+```
 
 ## What I found in the starting point
 
@@ -101,14 +108,21 @@ The old importer ran 5 SQL statements per row, about 5M in total. The new one:
 
 The result reports rows read, inserted, duplicates and rejected, with sample rejection reasons.
 
+**Duplicates are logged at info, not as warnings.** The summary line counts them, but only rejected
+rows get `warn` lines. Skipping duplicates is how re-imports stay safe: a re-run reports all
+1,000,000 rows as duplicates, so a warning would fire on every safe run and teach operators to
+ignore warnings. `ON CONFLICT DO NOTHING` also returns only the inserted rows, so telling a repeat
+within the file (an upstream data issue) from one already stored (a re-import) would mean tracking
+about a million keys in Ruby. Real event timestamps (see next steps) make the question mostly moot.
+
 **Considered and not chosen:** Postgres `COPY` into a staging table. It would probably be about 2x
 faster, but it's mostly raw SQL and makes per-row rejection reporting harder. At 33 s for 1M rows,
 `insert_all` is fast enough and stays idiomatic.
 
 `inventory_checks:import` reads `inventory_checks.csv`, and falls back to `tracking_events.csv` if
 that file doesn't exist. The repository's data file is now named `inventory_checks.csv`; anyone with
-the original `tracking_events.csv` can still import it unchanged. `tracking_events:import` contains no logic of its own; it just runs the
-per-type import tasks.
+the original `tracking_events.csv` can still import it unchanged. `tracking_events:import` contains
+no logic of its own; it just runs the per-type import tasks.
 
 ### Pages: paginate, eager-load, count with one grouped query
 
@@ -137,7 +151,10 @@ per-type import tasks.
   model, row parser, unique index and file names. Adding a third kind of check is a few lines.
 - **Current price per store and product** uses `DISTINCT ON (store_id, product_id) … ORDER BY
   event_time DESC, id DESC`. It's wrapped as a subquery so a page can scope it through its owner,
-  then order and eager-load it freely. About 1.5 ms per page on the data.
+  then order and preload it freely. About 1.5 ms per page on the data. The pages sort these rows by
+  store address or product name, so `includes` joins the store or product rather than preloading
+  it separately. That's one query instead of two, and Rails chooses it because the order
+  references the joined table.
 - **Pages.**
   - The product page shows the current price at each store.
   - The store page shows the current price of each product. It isn't paginated, because the
@@ -208,10 +225,11 @@ per-type import tasks.
     remedy is to reconcile one store's pairs at a time inside the same transaction. That holds
     roughly 300 alerts at once instead of 30,000, gives identical results, and costs about 100
     smaller queries instead of a few large ones.
-  - **A planner pitfall found by `EXPLAIN`.** Writing the scope as one bound
-    `every_pair OR pair IN (...)` condition stopped Postgres from using the index: a one-pair
-    reconcile scanned all 960k checks (90 ms against 0.5 ms). The scope is now one of two fixed SQL
-    fragments, and a test asserts the index plan.
+  - **A planner pitfall found by `EXPLAIN`.** An early version wrote the scope as one bound
+    `every_pair OR pair IN (...)` condition, which stopped Postgres from using the index: a
+    one-pair reconcile scanned all 960k checks (90 ms against 0.5 ms). Now a full rebuild starts
+    from `InventoryCheck.all`, and a scoped one joins the checks to the unnested list of pairs. A
+    test asserts that the index plan is used.
 
 **How much of the reconciler can be ActiveRecord?** I first wrote it as one SQL statement (a
 multi-CTE query that also did the upsert and delete). I then moved it to ActiveRecord in two
@@ -246,7 +264,10 @@ passes, measuring each design on the full data. Every design produced identical 
   listings and counts read one table. The reconciler re-derives it, so a product that changes
   brand is followed on the next reconcile of its pairs.
 - **Database rules.** A streak's first check is unique (one alert per streak). `CHECK (miss_count
-  >= 2)` holds, and a resolution time and resolving check must be set together.
+  >= 2)` holds, and a resolution time and resolving check must be set together. The foreign keys
+  to the triggering and resolving checks, and to the product, have no indexes of their own. Checks
+  and products are never deleted (deletes are restricted), and alerts are rebuildable, so those
+  indexes would only slow the writes.
 - **Pages.**
   - An alerts index, newest first, with brand and status filters.
   - An alert page that lists the streak's checks, so a reader can see why the alert exists.
@@ -269,11 +290,12 @@ passes, measuring each design on the full data. Every design produced identical 
 
 ## Assumptions
 
-- `event_time` is date-granular. Checks are stored at midnight UTC and displayed as dates.
+- `event_time` is date-granular, because the import files carry dates only. Checks are stored at
+  midnight UTC and displayed as dates. Timestamps in the files are my first next step.
 - Rows that are identical in every column (store, product, date and result) are duplicate
   submissions.
 - Same-day rows with different results are ordered by CSV order (`id`). The later row is the newer
-  check.
+  check. This is a stand-in for real event times, which the files don't have.
 - A product name is unique across brands, because the CSV identifies products by name alone.
 - Prices are in a single currency (USD) and, like inventory, recorded per day.
 - "Two no-inventory events in a row" means two consecutive checks in a store/product timeline
@@ -281,23 +303,39 @@ passes, measuring each design on the full data. Every design produced identical 
   in the system once resolved, as history.
 - Imports aren't expected to run concurrently. Two imports touching the same pairs at once would
   each reconcile correctly, but the last writer wins on derived values. A per-pair advisory lock
-  would close that.
+  would close that, and it becomes necessary once checks can also arrive through an API (see next
+  steps).
 
 ## Results
 
-Same machine and method as the baseline. The data is a freshly imported database (960,511 checks),
-pages are the warm steady state, and the database is autovacuumed.
+Final measurements on the finished code, from a clean clone with a freshly imported database. Same
+machine and method as the baseline: development mode, warm requests, autovacuumed tables.
 
 | Operation | Before | After |
 |---|---:|---:|
-| Import 1M rows | 24 min 07 s · ~5M queries | **33 s** · 134 MB peak memory |
-| Re-run the import | duplicated every row | 28 s · 0 inserted |
-| `/stores` | 108 ms · 102 queries · 17 KB | 39 ms · 2 queries · 14 KB |
-| `/stores/1` | 3,238 ms · 20,105 queries · 1.8 MB | **11 ms · 5 queries · 16 KB** |
-| `/products` | 199 ms · 453 queries · 40 KB | 44 ms · 3 queries · 39 KB |
-| `/products/1` | 497 ms · 4,414 queries · 577 KB | 8 ms · 5 queries · 14 KB |
-| `/brands` | 14 ms · 46 queries · 8 KB | 5 ms · 2 queries · 7 KB |
-| `/brands/1` | 7 ms · 8 queries · 3 KB | 6 ms · 3 queries · 3 KB |
+| Import (`tracking_events:import`) | 24 min 07 s · ~5M queries · inventory only | **36 s** for 1M inventory + 100k price rows, alerts included · 250 MB peak memory |
+| Re-run the import | duplicated every row | 29 s · 0 inserted · every pair in the file re-checked, alerts unchanged |
+| Full alert rebuild (`inventory_alerts:reconcile`) | — | 2.5 s |
+| `/stores` | 108 ms · 102 queries · 17 KB | 40 ms · 2 queries · 14 KB |
+| `/stores/1` | 3,238 ms · 20,105 queries · 1.8 MB | **33 ms · 7 queries · 64 KB** (adds current prices for ~220 products) |
+| `/products` | 199 ms · 453 queries · 40 KB | 51 ms · 3 queries · 39 KB |
+| `/products/1` | 497 ms · 4,414 queries · 577 KB | 16 ms · 7 queries · 32 KB (adds current price by store) |
+| `/products/1/price_checks` (history frame) | — | 8 ms · 4 queries · 12 KB |
+| `/brands` | 14 ms · 46 queries · 8 KB | 8 ms · 3 queries · 11 KB (adds open-alert counts) |
+| `/brands/1` | 7 ms · 8 queries · 3 KB | 6 ms · 6 queries · 3 KB |
+| `/inventory_alerts` | — | 13 ms · 6 queries · 30 KB |
+| `/inventory_alerts?brand_id=…&status=open` | — | 9 ms · 6 queries · 14 KB |
+| `/inventory_alerts/:id` | — | 5 ms · 5 queries · 4 KB |
+
+- **Where the time goes.** The store page's remaining time is mostly rendering its ~220
+  current-price rows; its SQL takes about 2 ms.
+- **Why some query counts went up.** A few pages run one or two more queries than strictly needed
+  (a `COUNT` or `EXISTS` before rendering a list), because relations stay lazy until the view
+  iterates them. Every count is fixed: it doesn't grow with the data.
+- **Memory.** Peak import memory rose from 134 MB before the alert work to 250 MB for a first
+  import, and about 220 MB for a full re-import, which also reconciles every pair in the file. The
+  reconciler compares the desired and stored alerts (about 30k each) in Ruby. The alert system's
+  "Memory" note gives the remedy if that ever matters.
 
 **Vacuum after the import.** Grouped counts and Pagy's totals become index-only scans once the
 table's visibility map is up to date. Autovacuum takes care of this by itself: PostgreSQL 13+
@@ -305,30 +343,134 @@ triggers on inserts, and it ran 2 seconds after the 960k-row import. No explicit
 needed. A database cloned with `createdb -T` doesn't get this until it's vacuumed, which is why
 early measurements on a clone were slower.
 
-**With price tracking (Step 2).** Fresh database, both CSVs, the same method as above:
+## How it was tested
 
-| Operation | Result |
-|---|---|
-| `tracking_events:import` (1M inventory rows + 100k price rows) | 38.6 s: 960,511 + 98,022 inserted · 39,489 + 1,978 duplicates · 0 rejected |
-| Re-run | 32.5 s · 0 inserted |
-| `/products/1` (current price by store, inventory checks) | 17 ms · 6 queries · 31 KB |
-| `/products/1/price_checks` (lazy price history frame) | 9 ms · 4 queries · 12 KB |
-| `/stores/1` (current price of every product, inventory checks) | 38 ms · 6 queries · 64 KB; database time ~2 ms, the rest is rendering ~220 rows |
+- **Minitest and fixtures**, the project's own stack. The suite covers models, database constraints
+  (asserted directly, because `insert_all` skips validations), importers, rake tasks, the
+  reconciler, helpers, and every page.
+- **Page tests cap the SQL queries per request.** Each limit was checked by putting the N+1 back and
+  watching the test fail.
+- **Mutation checks.** Key tests were confirmed to fail when the code under them is broken on
+  purpose (see the alert system's Verification).
+- **Full-data acceptance at each step.** On a fresh database with the real CSV, the expected counts
+  were checked (960,511 checks, 39,489 duplicates, 29,978 alerts with 849 open), along with
+  idempotent re-imports and page timings. Two more checks:
+  - A fully duplicate re-import into a database with no alerts recreated all 29,978.
+  - Two separate one-row imports (one out-of-stock day, then the next) raised exactly one alert.
+- **An independent oracle.** A separate script derives every alert from the raw CSV and is compared
+  with the database alert by alert.
+- **An independent code review before submission.** It found edge cases, each now fixed with a test
+  that fails without the fix:
+  - dates in other ISO 8601 forms being accepted
+  - storage that depended on the app's time zone
+  - repeated or string pairs passed to the reconciler
+  - `?page[]=2` returning a 500
+  - a malformed CSV ending in a backtrace
 
-**With alerts (Step 3).** Fresh database, `tracking_events:import`, the same method as above:
+## How I worked
 
-| Operation | Result |
-|---|---|
-| `tracking_events:import` | 36–41 s, including the alert reconcile: 960,511 + 98,022 checks, **29,978 alerts (849 open)** |
-| Re-run | 29 s · 0 inserted · every pair in the file re-checked · alerts created=0 updated=0 deleted=0 |
-| `inventory_alerts:reconcile` (full rebuild, nothing to change) | 2.5 s |
-| One-pair reconcile | ~5 ms (index scans on both tables) |
-| `/inventory_alerts` | 21 ms · 6 queries · 30 KB |
-| `/inventory_alerts?brand_id=…&status=open` | 9 ms · 6 queries |
-| `/inventory_alerts/:id` | 6–15 ms · 5 queries |
-| `/brands` (with open-alert counts) | 10–26 ms · 3 queries |
-
+I planned before building: [docs/PLAN.md](docs/PLAN.md) records the baseline, the data profile, the
+decisions with their alternatives, and the questions I settled up front. The work shipped in four
+reviewed steps: foundation; rename, integrity and performance; price tracking; alerts. Each ended
+with tests green and the app working on the full data. I used Claude Code (AI is allowed for this
+assignment) to implement parts in parallel. I reviewed every change, measured it on the full
+dataset, and sent work back when it fell short. One example: the reconciler went from a single SQL
+statement to ActiveRecord relations after a review.
 
 ## Trade-offs and what I'd do next
 
-_To be completed in the final step._
+**Trade-offs I chose deliberately**
+
+- **Exact-duplicate rows are dropped.** This assumes a repeated, identical row for the same day is a
+  duplicate submission. It's a workaround for date-only data. The data has 372 store/product/days
+  where a result returns after changing (for example miss, restock, miss), and the later repeat is
+  dropped, which can move where a streak resolves. Timestamps in the import files (my first next
+  step) remove the ambiguity.
+- **`insert_all` over `COPY`.** It's idiomatic and reports rejections per row, at about 2x the import
+  time `COPY` would likely take.
+- **Grouped counts over counter caches.** There's no denormalized state to keep correct after bulk
+  inserts, at roughly 30–40 ms for index pages over 960k rows.
+- **`brand_id` stored on alerts.** Per-brand listings and counts read one table. The reconciler
+  re-derives it, so a product that changes brand is corrected on the next reconcile of its pairs.
+- **Derived, reconciled alerts.** They're always consistent with the checks, including late,
+  out-of-order and partial data spread across imports. The cost is recomputing every timeline an
+  import names: about 2 s and roughly 95 MB for the full file. Reconciling one store at a time
+  would bound the memory, but I kept the simpler single pass. Resolved alerts are kept as history;
+  there's no acknowledge workflow.
+- **ActiveRecord over one SQL statement for the reconciler.** It's clearer and uses the
+  framework's writes, for about 0.6 s more per full reconcile.
+- **OFFSET pagination.** It's simple and fast at this size (deep pages take about 10–40 ms).
+
+**What I'd do next**
+
+Top priorities, in order:
+
+1. **Give import events a timestamp, not just a date.** With a real `DateTime` per check, the
+   newest event is reliable. Several workarounds then go away:
+   - Same-day ties no longer fall back to CSV row order (`id`).
+   - The 372 same-day results that return after a change are kept as real checks. Only true
+     re-submissions (same store, product, time and result) are skipped as duplicates.
+   - Streak boundaries and current prices become exact.
+
+   The schema is already ready: `event_time` is a `datetime` column, and the unique indexes become
+   precise once it carries a time. The work is the row parsers (an ISO 8601 timestamp with a zone),
+   the date helpers, and tests. I didn't do it here because the system that generates the import
+   files is out of scope. On a real project I'd agree the format change with the team responsible
+   for those files.
+2. **Add create API endpoints for `InventoryCheck` and `PriceCheck`**, as an alternative to bulk CSV
+   imports. For example, authenticated `POST /api/inventory_checks` and `POST /api/price_checks`,
+   validated by the models (which already match the database rules). Each inventory check would
+   reconcile its own store/product pair in the same transaction, so alerts stay current
+   check by check.
+3. **Add rollup tables, and keep `inventory_checks` and `price_checks` as audit tables.** Both event
+   tables only ever grow, so pages and counts that read them directly will slow down over time.
+   The rollups would be kept up to date by the same import and API paths that write the checks:
+   - current stock status per store and product
+   - current price per store and product
+   - daily or monthly counts per store, product and brand
+
+   The pages would then read small tables whose size is bounded by the catalog, not by history.
+   The event tables stay complete and append-only for auditing, history pages and alert
+   reconciles. They could also be partitioned by month.
+
+   **The alternative:** move the event tables into a database built for analytics (a columnar or
+   time-series store) and keep querying them directly there, leaving Postgres with the catalog,
+   alerts and current state.
+
+Then, given those:
+
+- **Make the alert rule explicit, centralized and easy to change.** Today "two or more consecutive
+  misses" is written in three places:
+  - the reconciler's `where(in_stock: false, check_count: 2..)`
+  - the `miss_count` validation on `InventoryAlert`
+  - the database `CHECK (miss_count >= 2)`
+
+  I'd move the rule into a single `InventoryAlert` class method (or a small rule object it
+  returns) that the reconciler's query and the validation both use. It would also define what
+  counts as consecutive (checks, or calendar days once timestamps exist), so a change like
+  "3 consecutive days" is one edit. The check constraint would be relaxed to the invariant that
+  always holds (at least one miss), so changing the rule doesn't need a migration. Because alerts
+  are derived, applying a new rule to history is one `inventory_alerts:reconcile`.
+- **A per-pair advisory lock in the reconciler**, and imports moved to background jobs. Once API
+  writes can arrive while an import runs, two writers can touch the same pair, so the lock becomes
+  a requirement rather than a precaution.
+- **Improve the view styling considerably, probably by adding Tailwind CSS** (`tailwindcss-rails`,
+  which needs no Node with importmaps). The pages are deliberately plain, with a few hand-written
+  stylesheets. A design system would make the tables, filters and status badges much easier to
+  scan, and responsive layouts easier to maintain.
+- **Notify brands** with a digest per brand per day (or per import), rather than one email per
+  alert. A backfill would otherwise send 30k emails, and API writes would send a steady trickle.
+- **Reconcile one store at a time** if import memory becomes a constraint. It gives identical
+  results while holding about 300 alerts at once instead of 30,000.
+- **Keyset pagination** for the history pages if per-store histories grow far beyond 10k checks.
+- **Targeted indexes as data grows:**
+  - `(product_id, store_id, event_time DESC, id DESC) INCLUDE (price_cents)` for current prices
+  - a partial index on open alerts
+  - `(store_id, product_id, event_time, id) INCLUDE (inventory_present)` for scoped reconciles
+
+  With rollups serving the pages, these matter mainly for history pages and reconciles. With
+  timestamps, the `id` tie-breaks in these become a last resort rather than routine.
+- **A `COPY`-based path in `CsvCheckImporter`**, for large backfills only. With an API for
+  incremental data, the CSV import matters less day to day.
+- **Tooling.** CI with Postgres, RuboCop (`rubocop-rails-omakase`), Bullet in test, and a
+  `perf:report` task that reproduces the tables above.

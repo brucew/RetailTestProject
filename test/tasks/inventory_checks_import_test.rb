@@ -71,6 +71,18 @@ class InventoryChecksImportTaskTest < ActiveSupport::TestCase
     assert_equal "#{path} is missing required headers: Date\n", stderr
   end
 
+  test "a file that isn't valid CSV exits with status 1 and says so, without a backtrace" do
+    path = file_fixture("inventory_checks/malformed.csv")
+    error = nil
+
+    stderr = capture_io do
+      error = assert_raises(SystemExit) { import_task.execute(Rake::TaskArguments.new([:path], [path.to_s])) }
+    end.last
+
+    assert_equal 1, error.status
+    assert_match(/\A#{Regexp.escape(path.to_s)} is not valid CSV: /, stderr)
+  end
+
   private
 
   def import_task

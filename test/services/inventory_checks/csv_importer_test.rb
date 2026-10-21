@@ -118,7 +118,7 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
   end
 
   test "a file that breaks partway through leaves no rows behind" do
-    assert_raises(CSV::MalformedCSVError) { import("malformed.csv", batch_size: 1) }
+    assert_raises(CsvCheckImporter::MalformedFileError) { import("malformed.csv", batch_size: 1) }
 
     assert_empty imported_checks
   end
@@ -275,7 +275,7 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
   test "a file that breaks partway through leaves the alerts as they were" do
     alerts_before = InventoryAlert.order(:id).map(&:attributes)
 
-    assert_raises(CSV::MalformedCSVError) { import("malformed_after_alert_changes.csv", batch_size: 1) }
+    assert_raises(CsvCheckImporter::MalformedFileError) { import("malformed_after_alert_changes.csv", batch_size: 1) }
 
     assert_equal alerts_before, InventoryAlert.order(:id).map(&:attributes)
   end

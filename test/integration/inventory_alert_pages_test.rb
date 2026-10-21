@@ -224,4 +224,10 @@ class InventoryAlertPagesTest < ActionDispatch::IntegrationTest
                            streak_start_check: first_miss, started_at: first_miss.event_time,
                            triggering_check: second_miss, triggered_at: second_miss.event_time)
   end
+
+  test "a page sent as a list or hash is a bad request, not a server error" do
+    get inventory_alerts_path(page: [2])
+
+    assert_response :bad_request
+  end
 end

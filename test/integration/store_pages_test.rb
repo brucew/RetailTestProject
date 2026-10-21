@@ -199,4 +199,10 @@ class StorePagesTest < ActionDispatch::IntegrationTest
 
     assert_response :bad_request
   end
+
+  test "a page sent as a list or hash is a bad request, not a server error" do
+    get store_path(@store, page: [2])
+
+    assert_response :bad_request
+  end
 end

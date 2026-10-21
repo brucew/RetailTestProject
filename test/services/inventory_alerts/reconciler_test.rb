@@ -1,4 +1,5 @@
 require "test_helper"
+require "minitest/mock"
 
 class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
   # Bree has no fixture checks for Dragon Stout, so each test builds the
@@ -209,6 +210,33 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
     assert_equal 2, hobbiton.inventory_alerts.count
   end
 
+  test "a pair listed twice is reconciled once" do
+    start = miss("2025-01-01")
+    trigger = miss("2025-01-02")
+    hit("2025-01-03")
+
+    assert_equal result(1, 0, 0), reconcile(pairs: [[@store.id, @product.id], [@store.id, @product.id]])
+
+    assert_alerts [{ streak_start_check: start, triggering_check: trigger, miss_count: 2 }]
+  end
+
+  test "pairs given as strings match the stored alerts like integers do" do
+    hobbiton = stores(:hobbiton_bywater_road)
+    inventory_alerts(:stout_out_at_hobbiton).update!(miss_count: 7)
+
+    assert_equal result(0, 1, 0), reconcile(pairs: [[hobbiton.id.to_s, products(:dragon_stout).id.to_s]])
+    assert_equal 2, inventory_alerts(:stout_out_at_hobbiton).reload.miss_count
+  end
+
+  test "a new alert that already exists fails the reconcile instead of being counted as created" do
+    alert = inventory_alerts(:stout_out_at_hobbiton)
+    reconciler = InventoryAlerts::Reconciler.new(pairs: [[alert.store_id, alert.product_id]])
+
+    reconciler.stub(:stored_alerts, {}) do
+      assert_raises(ActiveRecord::RecordNotUnique) { reconciler.reconcile }
+    end
+  end
+
   test "an empty list of pairs reconciles nothing, not everything" do
     inventory_alerts(:stout_out_at_hobbiton).update!(miss_count: 7)
     miss("2025-01-01")
@@ -241,7 +269,7 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
   # would rightly prefer them; the question is whether the index can be used.
   test "a scoped reconcile reads only the listed pairs' checks, and their stores' alerts, by index" do
     checks_plan = without_seq_scans { explain(captured_query(/scoped_pairs/) { reconcile }) }
-    alerts_plan = without_seq_scans { InventoryAlert.where(store_id: [@store.id]).explain.inspect }
+    alerts_plan = without_seq_scans { explain(captured_query(/FROM "inventory_alerts"/) { reconcile }) }
 
     checks_lookup = "Index Scan using index_inventory_checks_on_store_product_time_presence on inventory_checks"
     assert_match(/#{checks_lookup}\b.*\n\s*Index Cond: \(\(store_id = pair\.store_id\) AND \(product_id = pair\.product_id\)\)/,

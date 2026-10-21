@@ -14,8 +14,8 @@ class InventoryAlert < ApplicationRecord
   validates :miss_count, numericality: { only_integer: true, greater_than_or_equal_to: 2 }
   validates :started_at, presence: true
   validates :triggered_at, presence: true
-  validates :resolved_at, presence: true, if: :resolving_check
-  validates :resolved_at, absence: true, unless: :resolving_check
+  validates :resolved_at, presence: true, if: :resolving_check_id
+  validates :resolved_at, absence: true, unless: :resolving_check_id
 
   scope :open, -> { where(resolved_at: nil) }
   scope :resolved, -> { where.not(resolved_at: nil) }
