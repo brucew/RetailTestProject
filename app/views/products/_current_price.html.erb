@@ -1,5 +1,5 @@
 <tr>
   <td><%= link_to current_price.store.address, current_price.store %></td>
   <td class="numeric"><%= format_price(current_price.price_cents) %></td>
-  <td><%= check_date_tag(current_price) %></td>
+  <td><%= utc_date_tag(current_price.event_time) %></td>
 </tr>

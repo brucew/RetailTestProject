@@ -1,0 +1,41 @@
+<h1><%= @inventory_alert.product.name %> out of stock at <%= @inventory_alert.store.address %></h1>
+
+<dl class="summary">
+  <dt>Status</dt>
+  <dd><%= alert_status_tag(@inventory_alert) %></dd>
+  <dt>Brand</dt>
+  <dd><%= link_to @inventory_alert.brand.name, @inventory_alert.brand %></dd>
+  <dt>Product</dt>
+  <dd><%= link_to @inventory_alert.product.name, @inventory_alert.product %></dd>
+  <dt>Store</dt>
+  <dd><%= link_to @inventory_alert.store.address, @inventory_alert.store %></dd>
+  <dt>Started on</dt>
+  <dd><%= utc_date_tag(@inventory_alert.started_at) %></dd>
+  <dt>Raised on</dt>
+  <dd><%= utc_date_tag(@inventory_alert.triggered_at) %></dd>
+  <% if @inventory_alert.resolved_at %>
+    <dt>Resolved on</dt>
+    <dd><%= utc_date_tag(@inventory_alert.resolved_at) %></dd>
+  <% end %>
+  <dt>Misses in a row</dt>
+  <dd><%= number_with_delimiter(@inventory_alert.miss_count) %></dd>
+</dl>
+
+<h2>Checks in this streak, oldest first</h2>
+
+<%# Always at least the two misses that raised the alert, so never empty. %>
+<div class="table-scroll">
+  <table class="data-table streak-checks">
+    <thead>
+      <tr>
+        <th>Date</th>
+        <th>Inventory</th>
+      </tr>
+    </thead>
+    <tbody>
+      <%= render partial: "inventory_alerts/streak_check", collection: @streak_checks, as: :inventory_check %>
+    </tbody>
+  </table>
+</div>
+
+<p><%= link_to "All alerts for #{@inventory_alert.brand.name}", inventory_alerts_path(brand_id: @inventory_alert.brand_id) %></p>

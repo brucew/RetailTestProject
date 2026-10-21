@@ -1,0 +1,11 @@
+<tr>
+  <td><%= utc_date_tag(inventory_alert.triggered_at) %></td>
+  <td><%= alert_status_tag(inventory_alert) %></td>
+  <td><%= link_to inventory_alert.brand.name, inventory_alert.brand %></td>
+  <td><%= link_to inventory_alert.product.name, inventory_alert.product %></td>
+  <td><%= link_to inventory_alert.store.address, inventory_alert.store %></td>
+  <td class="numeric"><%= number_with_delimiter(inventory_alert.miss_count) %></td>
+  <td><%= utc_date_tag(inventory_alert.started_at) %></td>
+  <td><%= utc_date_tag(inventory_alert.resolved_at) if inventory_alert.resolved_at %></td>
+  <td><%= link_to "Details", inventory_alert %></td>
+</tr>

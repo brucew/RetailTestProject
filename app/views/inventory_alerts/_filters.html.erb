@@ -1,0 +1,13 @@
+<%= form_with url: inventory_alerts_path, method: :get, class: "filters" do |form| %>
+  <div class="filters__field">
+    <%= form.label :brand_id, "Brand" %>
+    <%= form.collection_select :brand_id, brands, :id, :name,
+                               { include_blank: "All brands", selected: brand_id } %>
+  </div>
+  <div class="filters__field">
+    <%= form.label :status, "Status" %>
+    <%= form.select :status, [["All statuses", ""], %w[Open open], %w[Resolved resolved]],
+                    { selected: status } %>
+  </div>
+  <%= form.submit "Filter", name: nil, class: "filters__submit" %>
+<% end %>

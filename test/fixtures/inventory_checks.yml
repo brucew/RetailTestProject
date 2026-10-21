@@ -21,3 +21,27 @@ stout_sold_out_at_hobbiton:
   store: hobbiton_bywater_road
   inventory_present: false
   event_time: 2024-03-03 14:15:00
+
+stout_still_sold_out_at_hobbiton:
+  product: dragon_stout
+  store: hobbiton_bywater_road
+  inventory_present: false
+  event_time: 2024-03-04 14:15:00
+
+porter_sold_out_at_hobbiton:
+  product: pony_porter
+  store: hobbiton_bywater_road
+  inventory_present: false
+  event_time: 2024-03-05 09:00:00
+
+porter_still_sold_out_at_hobbiton:
+  product: pony_porter
+  store: hobbiton_bywater_road
+  inventory_present: false
+  event_time: 2024-03-06 09:00:00
+
+porter_restocked_at_hobbiton:
+  product: pony_porter
+  store: hobbiton_bywater_road
+  inventory_present: true
+  event_time: 2024-03-07 09:00:00

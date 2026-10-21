@@ -1,0 +1,24 @@
+# Each alert matches the fixture checks it points at, so the reconciler would
+# produce exactly these rows from test/fixtures/inventory_checks.yml.
+
+stout_out_at_hobbiton:
+  brand: green_dragon
+  store: hobbiton_bywater_road
+  product: dragon_stout
+  streak_start_check: stout_sold_out_at_hobbiton
+  triggering_check: stout_still_sold_out_at_hobbiton
+  started_at: 2024-03-03 14:15:00
+  triggered_at: 2024-03-04 14:15:00
+  miss_count: 2
+
+porter_out_at_hobbiton:
+  brand: prancing_pony
+  store: hobbiton_bywater_road
+  product: pony_porter
+  streak_start_check: porter_sold_out_at_hobbiton
+  triggering_check: porter_still_sold_out_at_hobbiton
+  resolving_check: porter_restocked_at_hobbiton
+  started_at: 2024-03-05 09:00:00
+  triggered_at: 2024-03-06 09:00:00
+  resolved_at: 2024-03-07 09:00:00
+  miss_count: 2

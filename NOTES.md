@@ -156,6 +156,102 @@ per-type import tasks.
 
   It's committed so the documented import works with no extra step.
 
+### Alert system (Objective 2)
+
+"Two no-inventory events in a row" has a few readings, so I pinned it down against the data:
+
+| Reading | Alerts on the CSV |
+|---|---:|
+| One alert per consecutive pair of misses (3 misses → 2 alerts) | 36,868 |
+| **One alert per out-of-stock streak (chosen)** | **29,978** |
+
+- **One alert per streak.** A brand needs one actionable alert per stockout, not one per extra
+  missed check. The alert is raised by the 2nd consecutive miss, its miss count grows while the
+  streak continues, and it resolves at the first in-stock check after the streak.
+- **Order is `(event_time, id)`.** Events are date-only and arrive out of order, so ids aren't in
+  time order. 15,384 of the 29,978 alerts have a first miss with a *higher* id than the second.
+  Same-day checks fall back to CSV order.
+- **Alerts are derived, then reconciled.** A late check can start, extend, resolve, split, or move
+  the start of a streak anywhere in its timeline, so patching alerts check by check would be
+  fragile. `InventoryAlerts::Reconciler` recomputes the alerts the checks imply and makes the table
+  match: it inserts new alerts, updates changed ones, and deletes ones the checks no longer
+  support. It writes only what differs, so running it twice changes nothing.
+  - **Built from ActiveRecord relations.** Each step of finding streaks is a small relation:
+    1. the timeline, where `LAG` marks run starts
+    2. numbered checks, where a running count numbers the runs
+    3. runs, where `ARRAY_AGG(... ORDER BY event_time, id)` picks each run's first two checks
+    4. runs with their successor, where `LEAD` finds the restock
+    5. streaks
+
+    Each is nested in the next with `from(relation, :inventory_checks)`. Keeping the model's table
+    name as the alias lets `group`, `where(in_stock: false, check_count: 2..)` and
+    `joins(:product)` work as usual. The only SQL left is the expressions ActiveRecord can't build:
+    window functions, `FILTER` and ordered `ARRAY_AGG`. The reconciler compares the streaks with
+    the stored alerts in Ruby and writes the difference with `insert_all`, `upsert_all` and a
+    scoped `delete_all`. The created, updated and deleted counts are simply the sizes of those
+    sets.
+  - **Scoped to what changed.** The inventory import collects the store/product pairs that gained
+    a check and reconciles only those, inside the import's transaction, so a failed import leaves
+    alerts as they were too. `bin/rails inventory_alerts:reconcile` does a full rebuild.
+  - **A planner pitfall found by `EXPLAIN`.** Writing the scope as one bound
+    `every_pair OR pair IN (...)` condition stopped Postgres from using the index: a one-pair
+    reconcile scanned all 960k checks (90 ms against 0.5 ms). The scope is now one of two fixed SQL
+    fragments, and a test asserts the index plan.
+
+**How much of the reconciler can be ActiveRecord?** I first wrote it as one SQL statement (a
+multi-CTE query that also did the upsert and delete). I then moved it to ActiveRecord in two
+passes, measuring each design on the full data. Every design produced identical alerts:
+
+| Design | Full no-op | Import path (22,826 pairs) | One pair |
+|---|---:|---:|---:|
+| One SQL statement (detect + upsert + delete) | 1.5 s | 1.4 s | 3–6 ms |
+| SQL detection query + ActiveRecord writes | 2.0 s | 2.1 s | 5–6 ms |
+| **ActiveRecord relations for detection + ActiveRecord writes (chosen)** | **2.0 s** | **2.1 s** | **7 ms** |
+| Detection scoped with a tuple `where` | 2.1 s | 83–91 s | 2–3 ms |
+| Plain ActiveRecord reads, streaks found in Ruby | 6.2 s | 86–97 s | 1 ms |
+
+- **Each query step is a relation; SQL is limited to single expressions.** ActiveRecord has no API
+  for window functions, `FILTER` or ordered aggregates, so those stay as `select` fragments. Arel
+  has `.over`, but it's semi-internal and harder to read than the SQL it would build.
+  Everything around them (`FROM`, `GROUP BY`, `WHERE`, the join to products, `pluck`) is
+  ActiveRecord.
+- **Rails 7.1's tuple `where([:store_id, :product_id] => pairs)` expands to one `OR` term per
+  pair.** Postgres can't serve that from an index, so an import's 22,826 pairs took over 80 s.
+  The scope is a join to an unnested array of pairs instead. Stored alerts are read by store and
+  narrowed to the listed pairs in Ruby.
+- **The writes are ActiveRecord.** That removed the hand-written upsert, its nine-column change
+  check, timestamps set by hand, and counting through `RETURNING xmax = 0`, a Postgres
+  implementation detail.
+- **The cost of the ActiveRecord version:**
+  - about 0.6 s per full reconcile (2% of an import)
+  - three statements in one transaction instead of one statement
+  - loading the affected alerts into Ruby, up to 30k small rows on a full rebuild
+
+- **Each alert is addressed to the brand.** `brand_id` is stored on the alert, so per-brand
+  listings and counts read one table. The reconciler re-derives it, so a product that changes
+  brand is followed on the next reconcile of its pairs.
+- **Database rules.** A streak's first check is unique (one alert per streak). `CHECK (miss_count
+  >= 2)` holds, and a resolution time and resolving check must be set together.
+- **Pages.**
+  - An alerts index, newest first, with brand and status filters.
+  - An alert page that lists the streak's checks, so a reader can see why the alert exists.
+  - Open-alert counts on the brand pages, linking to the filtered index.
+  - No notifications: the brief asks only for basic index and show pages, and brands have no
+    contact details.
+
+**Verification.**
+- An independent Ruby script, sharing no code with the reconciler, derives every alert from the
+  raw CSV. Its output is identical alert by alert to the database's, down to the dates and miss
+  counts: 29,978 alerts, 849 open.
+- The reconciler's tests caught every deliberate mutation tried. Twenty were made to the original SQL,
+  for example `MIN(id)` instead of timeline order, dropping the `id` tie-break, or partitioning by
+  store only. After the move to ActiveRecord, I mutated the new code again: 4 changes to the write
+  path and 10 to the relations (for example `MIN(id)`, no `id` tie-break, `LEAD` across pairs, a
+  3-miss threshold, scope ignored). One write-path mutation survived at first, stored alerts not
+  narrowed to the listed pairs, so I added a test for it.
+- On the full data, importing a single late in-stock check dated between an alert's two misses
+  deleted exactly that alert. Removing the check and rebuilding restored it.
+
 ## Assumptions
 
 - `event_time` is date-granular. Checks are stored at midnight UTC and displayed as dates.
@@ -165,6 +261,12 @@ per-type import tasks.
   check.
 - A product name is unique across brands, because the CSV identifies products by name alone.
 - Prices are in a single currency (USD) and, like inventory, recorded per day.
+- "Two no-inventory events in a row" means two consecutive checks in a store/product timeline
+  ordered by `event_time` (then CSV order for the same day). Alerts are raised per streak and stay
+  in the system once resolved, as history.
+- Imports aren't expected to run concurrently. Two imports touching the same pairs at once would
+  each reconcile correctly, but the last writer wins on derived values. A per-pair advisory lock
+  would close that.
 
 ## Results
 
@@ -197,6 +299,19 @@ early measurements on a clone were slower.
 | `/products/1` (current price by store, inventory checks) | 17 ms · 6 queries · 31 KB |
 | `/products/1/price_checks` (lazy price history frame) | 9 ms · 4 queries · 12 KB |
 | `/stores/1` (current price of every product, inventory checks) | 38 ms · 6 queries · 64 KB; database time ~2 ms, the rest is rendering ~220 rows |
+
+**With alerts (Step 3).** Fresh database, `tracking_events:import`, the same method as above:
+
+| Operation | Result |
+|---|---|
+| `tracking_events:import` | 36–41 s, including the alert reconcile: 960,511 + 98,022 checks, **29,978 alerts (849 open)** |
+| Re-run | 26 s · 0 inserted · alerts created=0 updated=0 deleted=0 |
+| `inventory_alerts:reconcile` (full rebuild, nothing to change) | 2.5 s |
+| One-pair reconcile | ~5 ms (index scans on both tables) |
+| `/inventory_alerts` | 21 ms · 6 queries · 30 KB |
+| `/inventory_alerts?brand_id=…&status=open` | 9 ms · 6 queries |
+| `/inventory_alerts/:id` | 6–15 ms · 5 queries |
+| `/brands` (with open-alert counts) | 10–26 ms · 3 queries |
 
 
 ## Trade-offs and what I'd do next

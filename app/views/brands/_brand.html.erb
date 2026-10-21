@@ -1,4 +1,5 @@
 <tr>
   <td><%= link_to brand.name, brand %></td>
   <td class="numeric"><%= number_with_delimiter(product_counts.fetch(brand.id, 0)) %></td>
+  <td class="numeric"><%= open_alerts_link(brand, open_alert_counts.fetch(brand.id, 0)) %></td>
 </tr>

@@ -5,6 +5,7 @@ require "test_helper"
 # seed counts can be asserted exactly rather than as deltas over fixtures.
 class SeedsTest < ActiveSupport::TestCase
   setup do
+    InventoryAlert.delete_all
     InventoryCheck.delete_all
     PriceCheck.delete_all
     Product.delete_all

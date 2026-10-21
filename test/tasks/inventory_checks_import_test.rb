@@ -14,7 +14,7 @@ class InventoryChecksImportTaskTest < ActiveSupport::TestCase
 
     assert_equal <<~OUTPUT, output
       Importing inventory checks from #{path}
-      Inventory checks: rows read=4 inserted=4 duplicates=0 rejected=0
+      Inventory checks: rows read=4 inserted=4 duplicates=0 rejected=0; alerts created=0 updated=1 deleted=0
     OUTPUT
   end
 
@@ -23,7 +23,7 @@ class InventoryChecksImportTaskTest < ActiveSupport::TestCase
 
     output = capture_io { import_task.execute(Rake::TaskArguments.new([:path], [path.to_s])) }.first
 
-    assert_includes output, "Inventory checks: rows read=3 inserted=1 duplicates=0 rejected=2\n"
+    assert_includes output, "Inventory checks: rows read=3 inserted=1 duplicates=0 rejected=2; alerts created=0 updated=0 deleted=0\n"
     assert_includes output, %(  rejected line 3: unknown store "99 Nowhere Lane, Mordor"\n)
     assert_includes output, %(  rejected line 4: unknown product "Orc Draught"\n)
   end

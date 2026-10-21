@@ -6,10 +6,12 @@
       <tr>
         <th>Name</th>
         <th class="numeric">Products</th>
+        <th class="numeric">Open alerts</th>
       </tr>
     </thead>
     <tbody>
-      <%= render partial: "brands/brand", collection: @brands, locals: { product_counts: @product_counts } %>
+      <%= render partial: "brands/brand", collection: @brands,
+                 locals: { product_counts: @product_counts, open_alert_counts: @open_alert_counts } %>
     </tbody>
   </table>
 </div>

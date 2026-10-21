@@ -70,6 +70,7 @@ class PriceChecks::SampleGeneratorTest < ActiveSupport::TestCase
 
   test "an empty catalog can't produce any rows" do
     PriceCheck.delete_all
+    InventoryAlert.delete_all
     InventoryCheck.delete_all
     Store.delete_all
 

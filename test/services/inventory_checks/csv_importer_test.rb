@@ -1,5 +1,6 @@
 require "test_helper"
 require "csv"
+require "minitest/mock"
 
 class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
   setup do
@@ -15,7 +16,7 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
 
   test "rows are written in batches, one INSERT per batch" do
     inserts = []
-    counter = ->(*, payload) { inserts << payload[:sql] if payload[:sql].start_with?("INSERT") }
+    counter = ->(*, payload) { inserts << payload[:sql] if payload[:sql].start_with?(%(INSERT INTO "inventory_checks")) }
 
     ActiveSupport::Notifications.subscribed(counter, "sql.active_record") { import("valid.csv", batch_size: 3) }
 
@@ -198,6 +199,59 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
     end
   end
 
+  test "an import reconciles the alerts of every pair it added checks to" do
+    split_streak = inventory_alerts(:porter_out_at_hobbiton)
+
+    result = import("alert_changes.csv")
+
+    assert_equal alert_counts(1, 1, 1), result.derived_records
+    assert_equal [inventory_checks(:pale_ale_sold_out_at_bree)],
+                 InventoryAlert.where(store: stores(:bree_high_street)).map(&:streak_start_check)
+    assert_equal Time.zone.local(2025, 1, 5), inventory_alerts(:stout_out_at_hobbiton).reload.resolved_at
+    assert_not InventoryAlert.exists?(split_streak.id)
+  end
+
+  test "the import summary includes the alert changes" do
+    result = import("alert_changes.csv")
+
+    assert_equal "rows read=3 inserted=3 duplicates=0 rejected=0; alerts created=1 updated=1 deleted=1", result.summary
+  end
+
+  test "importing the same file again changes no alerts" do
+    import("alert_changes.csv")
+
+    assert_equal alert_counts(0, 0, 0), import("alert_changes.csv").derived_records
+  end
+
+  # Would fail if every parsed row's pair were reconciled, not just the inserted ones.
+  test "pairs whose rows were all duplicates are not reconciled" do
+    import("alert_changes.csv")
+    stale = InventoryAlert.find_by!(store: stores(:bree_high_street))
+    stale.update!(miss_count: 7)
+
+    import("alert_changes.csv")
+
+    assert_equal 7, stale.reload.miss_count
+  end
+
+  test "a file that breaks partway through leaves the alerts as they were" do
+    alerts_before = InventoryAlert.order(:id).map(&:attributes)
+
+    assert_raises(CSV::MalformedCSVError) { import("malformed_after_alert_changes.csv", batch_size: 1) }
+
+    assert_equal alerts_before, InventoryAlert.order(:id).map(&:attributes)
+  end
+
+  test "alerts are reconciled inside the import's transaction, so a failure there rolls back the checks too" do
+    failing_reconciler = ->(**) { raise ActiveRecord::StatementInvalid, "reconcile failed" }
+
+    InventoryAlerts::Reconciler.stub(:new, failing_reconciler) do
+      assert_raises(ActiveRecord::StatementInvalid) { import("alert_changes.csv") }
+    end
+
+    assert_empty imported_checks
+  end
+
   private
 
   def in_app_root_with(*file_names)
@@ -215,6 +269,10 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
 
   def rejection(line, reason)
     InventoryChecks::CsvImporter::Rejection.new(line:, reason:)
+  end
+
+  def alert_counts(created, updated, deleted)
+    InventoryAlerts::Reconciler::Result.new(created:, updated:, deleted:)
   end
 
   # Fixture checks are all from 2024; every file under test is dated 2025.

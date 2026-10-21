@@ -1,5 +1,5 @@
 <tr>
-  <td><%= check_date_tag(price_check) %></td>
+  <td><%= utc_date_tag(price_check.event_time) %></td>
   <td class="numeric"><%= format_price(price_check.price_cents) %></td>
   <td><%= link_to price_check.store.address, price_check.store %></td>
 </tr>
