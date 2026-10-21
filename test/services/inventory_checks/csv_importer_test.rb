@@ -252,6 +252,26 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
     assert_equal 9, unnamed.reload.miss_count
   end
 
+  test "alerts stay accurate across separate imports of partial data" do
+    bree = stores(:bree_high_street)
+    stout = products(:dragon_stout)
+    alerts = -> { InventoryAlert.where(store: bree, product: stout) }
+
+    assert_equal alert_counts(0, 0, 0), import_rows("2025-03-01,False").derived_records
+    assert_empty alerts.call
+
+    assert_equal alert_counts(1, 0, 0), import_rows("2025-03-02,False").derived_records
+    alert = alerts.call.sole
+    assert_equal [Time.utc(2025, 3, 1), Time.utc(2025, 3, 2), nil], [alert.started_at, alert.triggered_at, alert.resolved_at]
+
+    assert_equal alert_counts(0, 1, 0), import_rows("2025-03-03,True").derived_records
+    assert_equal Time.utc(2025, 3, 3), alert.reload.resolved_at
+
+    # A late file with an earlier miss moves where the streak starts.
+    assert_equal alert_counts(1, 0, 1), import_rows("2025-02-28,False").derived_records
+    assert_equal [Time.utc(2025, 2, 28), Time.utc(2025, 3, 1), 3], alerts.call.sole.then { [_1.started_at, _1.triggered_at, _1.miss_count] }
+  end
+
   test "a file that breaks partway through leaves the alerts as they were" do
     alerts_before = InventoryAlert.order(:id).map(&:attributes)
 
@@ -277,6 +297,17 @@ class InventoryChecks::CsvImporterTest < ActiveSupport::TestCase
       root = Pathname(dir)
       file_names.each { |name| FileUtils.touch(root.join(name)) }
       yield root
+    end
+  end
+
+  # Imports Dragon Stout checks at Bree, one "date,presence" line per row,
+  # from a file of their own.
+  def import_rows(*lines)
+    Tempfile.create(%w[inventory_checks .csv]) do |file|
+      file.write("Address,Product Name,Date,Inventory Present\n")
+      lines.each { |line| file.write("\"1 High Street, Bree\",Dragon Stout,#{line}\n") }
+      file.flush
+      InventoryChecks::CsvImporter.new(file.path, logger: Logger.new(@log)).import
     end
   end
 
