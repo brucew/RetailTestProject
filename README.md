@@ -1,11 +1,11 @@
 # Retail Inventory Tracking System
 
-My solution to the take-home brief below. Price tracking is a separate kind of check
-(`PriceCheck`, alongside the renamed `InventoryCheck`), because either can happen without the
-other. A store/product that misses inventory twice in a row raises one alert to the brand per
-out-of-stock streak; alerts are derived from the checks and reconciled on every import. The
-million-row import went from 24 minutes to about 36 seconds, prices and alerts included, and pages that ran thousands of
-queries now run a handful.
+My solution to the take-home brief below. Price tracking is a separate kind of check (`PriceCheck`,
+alongside the renamed `InventoryCheck`), because either can happen without the other. A
+store/product that misses inventory twice in a row raises one alert to the brand per out-of-stock
+streak; alerts are derived from the checks and reconciled on every import. The million-row import
+went from 24 minutes to about 36 seconds, prices and alerts included, and pages that ran thousands
+of queries now run a handful.
 
 - **[NOTES.md](NOTES.md)**: key decisions, assumptions, and before/after measurements. Start here
   for the why.
