@@ -314,7 +314,7 @@ machine and method as the baseline: development mode, warm requests, autovacuume
 | Operation | Before | After |
 |---|---:|---:|
 | Import (`tracking_events:import`) | 24 min 07 s · ~5M queries · inventory only | **36 s** for 1M inventory + 100k price rows, alerts included · 250 MB peak memory |
-| Re-run the import | duplicated every row | 26 s · 0 inserted · alerts unchanged |
+| Re-run the import | duplicated every row | 29 s · 0 inserted · every pair in the file re-checked, alerts unchanged |
 | Full alert rebuild (`inventory_alerts:reconcile`) | — | 2.5 s |
 | `/stores` | 108 ms · 102 queries · 17 KB | 40 ms · 2 queries · 14 KB |
 | `/stores/1` | 3,238 ms · 20,105 queries · 1.8 MB | **33 ms · 7 queries · 64 KB** (adds current prices for ~220 products) |
@@ -332,8 +332,10 @@ machine and method as the baseline: development mode, warm requests, autovacuume
 - **Why some query counts went up.** A few pages run one or two more queries than strictly needed
   (a `COUNT` or `EXISTS` before rendering a list), because relations stay lazy until the view
   iterates them. Every count is fixed: it doesn't grow with the data.
-- **Memory.** Peak import memory rose from 134 MB before the alert work to 250 MB. The reconciler
-  compares the desired and stored alerts (about 30k each) in Ruby.
+- **Memory.** Peak import memory rose from 134 MB before the alert work to 250 MB for a first
+  import, and about 220 MB for a full re-import, which also reconciles every pair in the file. The
+  reconciler compares the desired and stored alerts (about 30k each) in Ruby. The alert system's
+  "Memory" note gives the remedy if that ever matters.
 
 **Vacuum after the import.** Grouped counts and Pagy's totals become index-only scans once the
 table's visibility map is up to date. Autovacuum takes care of this by itself: PostgreSQL 13+
@@ -352,7 +354,9 @@ early measurements on a clone were slower.
   purpose (see the alert system's Verification).
 - **Full-data acceptance at each step.** On a fresh database with the real CSV, the expected counts
   were checked (960,511 checks, 39,489 duplicates, 29,978 alerts with 849 open), along with
-  idempotent re-imports and page timings.
+  idempotent re-imports and page timings. Two more checks:
+  - A fully duplicate re-import into a database with no alerts recreated all 29,978.
+  - Two separate one-row imports (one out-of-stock day, then the next) raised exactly one alert.
 - **An independent oracle.** A separate script derives every alert from the raw CSV and is compared
   with the database alert by alert.
 - **An independent code review before submission.** It found edge cases, each now fixed with a test
@@ -388,9 +392,11 @@ statement to ActiveRecord relations after a review.
   inserts, at roughly 30–40 ms for index pages over 960k rows.
 - **`brand_id` stored on alerts.** Per-brand listings and counts read one table. The reconciler
   re-derives it, so a product that changes brand is corrected on the next reconcile of its pairs.
-- **Derived, reconciled alerts.** They're always consistent with the checks, including late and
-  out-of-order data, at the cost of recomputing each touched timeline (about 2 s for every pair).
-  Resolved alerts are kept as history; there's no acknowledge workflow.
+- **Derived, reconciled alerts.** They're always consistent with the checks, including late,
+  out-of-order and partial data spread across imports. The cost is recomputing every timeline an
+  import names: about 2 s and roughly 95 MB for the full file. Reconciling one store at a time
+  would bound the memory, but I kept the simpler single pass. Resolved alerts are kept as history;
+  there's no acknowledge workflow.
 - **ActiveRecord over one SQL statement for the reconciler.** It's clearer and uses the
   framework's writes, for about 0.6 s more per full reconcile.
 - **OFFSET pagination.** It's simple and fast at this size (deep pages take about 10–40 ms).
@@ -428,6 +434,8 @@ Then, given those:
   a requirement rather than a precaution.
 - **Notify brands** with a digest per brand per day (or per import), rather than one email per
   alert. A backfill would otherwise send 30k emails, and API writes would send a steady trickle.
+- **Reconcile one store at a time** if import memory becomes a constraint. It gives identical
+  results while holding about 300 alerts at once instead of 30,000.
 - **Keyset pagination** if per-store histories grow far beyond 10k checks.
 - **Targeted indexes as data grows:**
   - `(product_id, store_id, event_time DESC, id DESC) INCLUDE (price_cents)` for current prices

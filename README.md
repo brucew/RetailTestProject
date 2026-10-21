@@ -54,9 +54,12 @@ Inventory checks: rows read=1000000 inserted=960511 duplicates=39489 rejected=0;
 Price checks: rows read=100000 inserted=98022 duplicates=1978 rejected=0
 ```
 
-Exact duplicate rows are skipped, so re-running the import is safe: it inserts nothing and
-changes no alerts. Each task also takes an explicit path. Quote the task name in zsh, which
-otherwise treats the brackets as a glob:
+Exact duplicate rows are skipped, so re-running the import is safe: it inserts nothing and never
+duplicates an alert. It does re-check the alerts of every store/product pair in the file, so a
+re-run also repairs alerts that are missing or out of date for checks already stored. Alerts stay
+accurate across separate imports of partial data, too: one file's out-of-stock day and another's
+next-day miss raise one alert. Each task also takes an explicit path. Quote the task name in zsh,
+which otherwise treats the brackets as a glob:
 
 ```bash
 bin/rails "inventory_checks:import[path/to/checks.csv]"
@@ -70,7 +73,7 @@ bin/rails "price_checks:import[path/to/prices.csv]"
 
 | Command | What it does |
 |---|---|
-| `bin/rails inventory_alerts:reconcile` | Rebuilds every alert from the checks (about 2.5 s). Imports already keep the pairs they touch up to date; running it twice changes nothing. |
+| `bin/rails inventory_alerts:reconcile` | Rebuilds every alert from the checks (about 2.5 s). Each import already reconciles every pair in its file; this covers all pairs at once. Running it twice changes nothing. |
 | `bin/rails "price_checks:generate_sample[path,rows]"` | Writes a reproducible price sample for the seeded catalog. Defaults: `price_checks.csv`, 100,000 rows. |
 | `DRY_RUN=1 bin/rails inventory_checks:remove_duplicates` | Reports exact duplicate inventory checks; without `DRY_RUN` it deletes them, keeping the earliest copy. Only needed for a database imported with the original importer (see below). |
 
@@ -95,7 +98,7 @@ Then open <http://localhost:3000>:
 bin/rails test
 ```
 
-285 tests (803 assertions). They include query-count caps on every page, so an N+1 regression
+287 tests (816 assertions). They include query-count caps on every page, so an N+1 regression
 fails the build.
 
 ### Upgrading an existing database
@@ -116,11 +119,14 @@ bin/rails inventory_checks:remove_duplicates
 bin/rails db:migrate
 ```
 
-Then create alerts for the checks that were already imported:
+Then create alerts for the checks that were already imported. Rebuild every pair:
 
 ```bash
 bin/rails inventory_alerts:reconcile
 ```
+
+Or re-run `bin/rails tracking_events:import`. It inserts nothing new but reconciles every pair in
+the file.
 
 ## Original assignment brief
 
