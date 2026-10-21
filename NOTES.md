@@ -6,7 +6,14 @@ gained. The full working plan, including how the work was split into shippable s
 
 ## Running it
 
-_To be completed in the final step._
+Setup and every command are in the [README](README.md#running-it). In short:
+
+```bash
+bundle install
+bin/rails db:create db:migrate db:seed
+bin/rails tracking_events:import   # inventory, then prices; alerts are reconciled along the way
+bin/rails server
+```
 
 ## What I found in the starting point
 
@@ -107,8 +114,8 @@ faster, but it's mostly raw SQL and makes per-row rejection reporting harder. At
 
 `inventory_checks:import` reads `inventory_checks.csv`, and falls back to `tracking_events.csv` if
 that file doesn't exist. The repository's data file is now named `inventory_checks.csv`; anyone with
-the original `tracking_events.csv` can still import it unchanged. `tracking_events:import` contains no logic of its own; it just runs the
-per-type import tasks.
+the original `tracking_events.csv` can still import it unchanged. `tracking_events:import` contains
+no logic of its own; it just runs the per-type import tasks.
 
 ### Pages: paginate, eager-load, count with one grouped query
 
@@ -208,10 +215,11 @@ per-type import tasks.
     remedy is to reconcile one store's pairs at a time inside the same transaction. That holds
     roughly 300 alerts at once instead of 30,000, gives identical results, and costs about 100
     smaller queries instead of a few large ones.
-  - **A planner pitfall found by `EXPLAIN`.** Writing the scope as one bound
-    `every_pair OR pair IN (...)` condition stopped Postgres from using the index: a one-pair
-    reconcile scanned all 960k checks (90 ms against 0.5 ms). The scope is now one of two fixed SQL
-    fragments, and a test asserts the index plan.
+  - **A planner pitfall found by `EXPLAIN`.** An early version wrote the scope as one bound
+    `every_pair OR pair IN (...)` condition, which stopped Postgres from using the index: a
+    one-pair reconcile scanned all 960k checks (90 ms against 0.5 ms). Now a full rebuild starts
+    from `InventoryCheck.all`, and a scoped one joins the checks to the unnested list of pairs. A
+    test asserts that the index plan is used.
 
 **How much of the reconciler can be ActiveRecord?** I first wrote it as one SQL statement (a
 multi-CTE query that also did the upsert and delete). I then moved it to ActiveRecord in two
@@ -329,6 +337,62 @@ early measurements on a clone were slower.
 | `/brands` (with open-alert counts) | 10–26 ms · 3 queries |
 
 
+## How it was tested
+
+- **Minitest and fixtures**, the project's own stack. The suite covers models, database constraints
+  (asserted directly, because `insert_all` skips validations), importers, rake tasks, the
+  reconciler, helpers, and every page.
+- **Page tests cap the SQL queries per request.** Each limit was checked by putting the N+1 back and
+  watching the test fail.
+- **Mutation checks.** Key tests were confirmed to fail when the code under them is broken on
+  purpose (see the alert system's Verification).
+- **Full-data acceptance at each step.** On a fresh database with the real CSV, the expected counts
+  were checked (960,511 checks, 39,489 duplicates, 29,978 alerts with 849 open), along with
+  idempotent re-imports and page timings.
+- **An independent oracle.** A separate script derives every alert from the raw CSV and is compared
+  with the database alert by alert.
+
+## How I worked
+
+I planned before building: [docs/PLAN.md](docs/PLAN.md) records the baseline, the data profile, the
+decisions with their alternatives, and the questions I settled up front. The work shipped in four
+reviewed steps: foundation; rename, integrity and performance; price tracking; alerts. Each ended
+with tests green and the app working on the full data. I used Claude Code (AI is allowed for this
+assignment) to implement parts in parallel. I reviewed every change, measured it on the full
+dataset, and sent work back when it fell short. One example: the reconciler went from a single SQL
+statement to ActiveRecord relations after a review.
+
 ## Trade-offs and what I'd do next
 
-_To be completed in the final step._
+**Trade-offs I chose deliberately**
+
+- **Exact-duplicate rows are dropped.** This assumes a repeated, identical row for the same day is a
+  duplicate submission. If the source could legitimately record two identical checks on one day,
+  the unique index would need a time or a source row number instead.
+- **`insert_all` over `COPY`.** It's idiomatic and reports rejections per row, at about 2x the import
+  time `COPY` would likely take.
+- **Grouped counts over counter caches.** There's no denormalized state to keep correct after bulk
+  inserts, at roughly 30–40 ms for index pages over 960k rows.
+- **`brand_id` stored on alerts.** Per-brand listings and counts read one table. The reconciler
+  re-derives it, so a product that changes brand is corrected on the next reconcile of its pairs.
+- **Derived, reconciled alerts.** They're always consistent with the checks, including late and
+  out-of-order data, at the cost of recomputing each touched timeline (about 2 s for every pair).
+  Resolved alerts are kept as history; there's no acknowledge workflow.
+- **ActiveRecord over one SQL statement for the reconciler.** It's clearer and uses the
+  framework's writes, for about 0.6 s more per full reconcile.
+- **OFFSET pagination.** It's simple and fast at this size (deep pages take about 10–40 ms).
+
+**What I'd do next**
+
+- **Run imports as background jobs** with a per-pair advisory lock in the reconciler, so concurrent
+  imports can't race on derived alerts.
+- **Notify brands** with one digest per brand per import rather than one email per alert. A backfill
+  would otherwise send 30k emails.
+- **Keyset pagination** if per-store histories grow far beyond 10k checks.
+- **Targeted indexes as data grows:**
+  - `(product_id, store_id, event_time DESC, id DESC) INCLUDE (price_cents)` for current prices
+  - a partial index on open alerts
+  - `(store_id, product_id, event_time, id) INCLUDE (inventory_present)` for scoped reconciles
+- **A `COPY`-based path in `CsvCheckImporter`**, which would speed up both importers at once.
+- **Tooling.** CI with Postgres, RuboCop (`rubocop-rails-omakase`), Bullet in test, and a
+  `perf:report` task that reproduces the tables above.
