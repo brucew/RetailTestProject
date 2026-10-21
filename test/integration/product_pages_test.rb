@@ -188,4 +188,10 @@ class ProductPagesTest < ActionDispatch::IntegrationTest
 
     assert_response :not_found
   end
+
+  test "a page that is not a positive number is a bad request" do
+    get product_path(@product, page: "abc")
+
+    assert_response :bad_request
+  end
 end

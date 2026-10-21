@@ -114,4 +114,10 @@ class PriceHistoryPagesTest < ActionDispatch::IntegrationTest
     end
     PriceCheck.insert_all!(rows)
   end
+
+  test "a page sent as a list or hash is a bad request, not a server error" do
+    get product_price_checks_path(@product, page: { number: 2 })
+
+    assert_response :bad_request
+  end
 end
