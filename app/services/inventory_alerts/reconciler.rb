@@ -23,9 +23,11 @@ module InventoryAlerts
     end
 
     # pairs:: [[store_id, product_id], ...] to reconcile. nil (the default)
-    #         reconciles every pair; an empty list reconciles none.
+    #         reconciles every pair; an empty list reconciles none. Ids are
+    #         read as integers and repeats dropped: a repeated pair would join
+    #         its checks twice, and stored alerts are matched by integer ids.
     def initialize(pairs: nil)
-      @pairs = pairs
+      @pairs = pairs&.map { |store_id, product_id| [Integer(store_id), Integer(product_id)] }&.uniq
     end
 
     # Writes only what differs, so reconciling again changes nothing. Runs in
@@ -76,7 +78,9 @@ module InventoryAlerts
     end
 
     def write(created, changed, stale_start_check_ids)
-      InventoryAlert.insert_all(created) if created.any?
+      # insert_all! raises rather than skipping a conflict, so a new alert that
+      # somehow already exists fails the reconcile instead of being miscounted.
+      InventoryAlert.insert_all!(created) if created.any?
       InventoryAlert.upsert_all(changed, unique_by: :streak_start_check_id) if changed.any?
       InventoryAlert.where(streak_start_check_id: stale_start_check_ids).delete_all if stale_start_check_ids.any?
     end
