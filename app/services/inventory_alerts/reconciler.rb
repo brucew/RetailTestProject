@@ -48,9 +48,8 @@ module InventoryAlerts
 
     # The attributes the checks determine, keyed by the streak's first check.
     def desired_alerts
-      rows = InventoryAlert.connection.select_all(desired_alerts_sql, "#{self.class.name} Desired Alerts")
-      rows.cast_values.to_h do |values|
-        alert = rows.columns.zip(values).to_h
+      streaks.pluck(*streak_columns.values).to_h do |values|
+        alert = streak_columns.keys.zip(values).to_h
         [alert.fetch("streak_start_check_id"), alert]
       end
     end
@@ -82,11 +81,78 @@ module InventoryAlerts
       InventoryAlert.where(streak_start_check_id: stale_start_check_ids).delete_all if stale_start_check_ids.any?
     end
 
-    def desired_alerts_sql
-      InventoryAlert.sanitize_sql_array([desired_alerts_query, {
-        store_ids: encode_array(@pairs.to_a.map(&:first)),
-        product_ids: encode_array(@pairs.to_a.map(&:last))
-      }])
+    # Each alert attribute and the streak column it's read from.
+    def streak_columns
+      {
+        "brand_id" => "products.brand_id", "store_id" => :store_id, "product_id" => :product_id,
+        "streak_start_check_id" => :first_check_id, "triggering_check_id" => :second_check_id,
+        "resolving_check_id" => :next_run_first_check_id, "started_at" => :first_event_time,
+        "triggered_at" => :second_event_time, "resolved_at" => :next_run_started_at, "miss_count" => :check_count
+      }
+    end
+
+    # The streak queries below nest each step as a subquery aliased
+    # "inventory_checks", so ActiveRecord's own column handling (group, where,
+    # joins(:product)) applies to it. SQL appears only for expressions
+    # ActiveRecord can't build: window functions, FILTER and ordered
+    # aggregates.
+
+    # Out-of-stock runs of two or more checks: the alerts the checks imply,
+    # raised at the second miss (D5) and addressed to the product's brand (A9).
+    def streaks
+      InventoryCheck.from(runs_with_next, :inventory_checks).joins(:product)
+                    .where(in_stock: false, check_count: 2..)
+    end
+
+    # Runs alternate, so the run after a stockout is the restock that resolves
+    # it; a timeline's last run has none.
+    def runs_with_next
+      InventoryCheck.from(runs, :inventory_checks)
+                    .select("inventory_checks.*",
+                            "LEAD(first_check_id) OVER (#{run_sequence}) AS next_run_first_check_id",
+                            "LEAD(first_event_time) OVER (#{run_sequence}) AS next_run_started_at")
+    end
+
+    # One row per run of consecutive checks with the same result. Its first two
+    # checks are taken in timeline order, not by id (D6).
+    def runs
+      InventoryCheck.from(numbered_checks, :inventory_checks)
+                    .group(:store_id, :product_id, :run_number)
+                    .select(:store_id, :product_id, :run_number,
+                            "bool_and(inventory_present) AS in_stock", "COUNT(*) AS check_count",
+                            "(ARRAY_AGG(id ORDER BY event_time, id))[1] AS first_check_id",
+                            "(ARRAY_AGG(id ORDER BY event_time, id))[2] AS second_check_id",
+                            "MIN(event_time) AS first_event_time",
+                            "(ARRAY_AGG(event_time ORDER BY event_time, id))[2] AS second_event_time")
+    end
+
+    # A running count of run starts numbers each check's run.
+    def numbered_checks
+      InventoryCheck.from(timeline, :inventory_checks)
+                    .select("inventory_checks.*", "COUNT(*) FILTER (WHERE starts_run) OVER (#{pair_timeline}) AS run_number")
+    end
+
+    # Each check, marked when its result differs from the check before it.
+    def timeline
+      checks_in_scope.select(:id, :store_id, :product_id, :event_time, :inventory_present,
+                             "inventory_present IS DISTINCT FROM LAG(inventory_present) OVER (#{pair_timeline}) AS starts_run")
+    end
+
+    # Every check for a full rebuild, else the listed pairs' checks, joined to
+    # them as an unnested array. Not where([:store_id, :product_id] => pairs):
+    # Rails 7.1 turns that into one OR term per pair, which Postgres can't
+    # serve from an index (over 80 s for an import's 22,826 pairs).
+    def checks_in_scope
+      return InventoryCheck.all if @pairs.nil?
+
+      InventoryCheck.joins("JOIN (#{scoped_pairs_sql}) AS scoped_pairs USING (store_id, product_id)")
+    end
+
+    def scoped_pairs_sql
+      InventoryCheck.sanitize_sql_array([
+        "SELECT * FROM unnest(:store_ids::bigint[], :product_ids::bigint[]) AS pair (store_id, product_id)",
+        { store_ids: encode_array(@pairs.map(&:first)), product_ids: encode_array(@pairs.map(&:last)) }
+      ])
     end
 
     # A Postgres array literal ("{1,2}"), bound as a single quoted value.
@@ -94,80 +160,15 @@ module InventoryAlerts
       PG::TextEncoder::Array.new.encode(ids)
     end
 
-    # Which checks are in scope: all of them for a full rebuild, else those of
-    # the listed pairs. This is fixed SQL, never a value. It's chosen here
-    # rather than written as one "every pair OR listed pair" condition because
-    # Postgres can't turn a subquery under OR into a join: a single-pair
-    # reconcile then scans every check (90 ms on the full data, against 1 ms
-    # through the unique index).
-    def pair_scope
-      @pairs.nil? ? "TRUE" : "(store_id, product_id) IN (SELECT store_id, product_id FROM scoped_pairs)"
+    # Each store/product pair's checks in timeline order. Same-day checks are
+    # ordered by id (D6); ids alone aren't in time order, because checks
+    # arrive out of order.
+    def pair_timeline
+      "PARTITION BY store_id, product_id ORDER BY event_time, id"
     end
 
-    # Window functions find each timeline's runs, which ActiveRecord can't
-    # express; this is the one place the reconciler writes SQL.
-    def desired_alerts_query
-      <<~SQL
-        WITH scoped_pairs AS (
-          SELECT * FROM unnest(:store_ids::bigint[], :product_ids::bigint[]) AS pair (store_id, product_id)
-        ),
-
-        -- Each check in timeline order, marked when its result differs from the
-        -- check before it. Same-day checks are ordered by id (D6); ids alone
-        -- are not in time order, because checks arrive out of order.
-        timeline AS (
-          SELECT id, store_id, product_id, event_time, inventory_present,
-                 inventory_present IS DISTINCT FROM LAG(inventory_present) OVER pair_timeline AS starts_run
-          FROM inventory_checks
-          WHERE #{pair_scope}
-          WINDOW pair_timeline AS (PARTITION BY store_id, product_id ORDER BY event_time, id)
-        ),
-
-        -- A running count of run starts numbers the runs of consecutive checks
-        -- with the same result.
-        numbered_checks AS (
-          SELECT *, COUNT(*) FILTER (WHERE starts_run) OVER pair_timeline AS run_number
-          FROM timeline
-          WINDOW pair_timeline AS (PARTITION BY store_id, product_id ORDER BY event_time, id)
-        ),
-
-        -- One row per run. Its first checks are taken in timeline order, not
-        -- with MIN(id), for the same reason.
-        runs AS (
-          SELECT store_id, product_id, run_number,
-                 bool_and(inventory_present) AS in_stock,
-                 COUNT(*) AS check_count,
-                 (ARRAY_AGG(id ORDER BY event_time, id))[1:2] AS first_check_ids,
-                 (ARRAY_AGG(event_time ORDER BY event_time, id))[1:2] AS first_event_times
-          FROM numbered_checks
-          GROUP BY store_id, product_id, run_number
-        ),
-
-        -- Runs alternate, so the run after a stockout is the restock that
-        -- resolves it; the last run of a timeline has none.
-        runs_with_next AS (
-          SELECT *,
-                 LEAD(first_check_ids[1]) OVER following_run AS next_run_first_check_id,
-                 LEAD(first_event_times[1]) OVER following_run AS next_run_started_at
-          FROM runs
-          WINDOW following_run AS (PARTITION BY store_id, product_id ORDER BY run_number)
-        )
-
-        -- The alerts the checks imply: every out-of-stock run of two or more
-        -- checks, raised at its second miss (D5). Addressed to the product's
-        -- brand (A9).
-        SELECT products.brand_id, streaks.store_id, streaks.product_id,
-               streaks.first_check_ids[1] AS streak_start_check_id,
-               streaks.first_check_ids[2] AS triggering_check_id,
-               streaks.next_run_first_check_id AS resolving_check_id,
-               streaks.first_event_times[1] AS started_at,
-               streaks.first_event_times[2] AS triggered_at,
-               streaks.next_run_started_at AS resolved_at,
-               streaks.check_count AS miss_count
-        FROM runs_with_next AS streaks
-        JOIN products ON products.id = streaks.product_id
-        WHERE NOT streaks.in_stock AND streaks.check_count >= 2
-      SQL
+    def run_sequence
+      "PARTITION BY store_id, product_id ORDER BY run_number"
     end
   end
 end

@@ -240,7 +240,7 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
   # Seq scans are disabled because on a handful of fixture rows Postgres
   # would rightly prefer them; the question is whether the index can be used.
   test "a scoped reconcile reads only the listed pairs' checks, and their stores' alerts, by index" do
-    checks_plan = without_seq_scans { explain(capture_sql_queries { reconcile }.grep(/scoped_pairs/).sole) }
+    checks_plan = without_seq_scans { explain(captured_query(/scoped_pairs/) { reconcile }) }
     alerts_plan = without_seq_scans { InventoryAlert.where(store_id: [@store.id]).explain.inspect }
 
     checks_lookup = "Index Scan using index_inventory_checks_on_store_product_time_presence on inventory_checks"
@@ -295,8 +295,16 @@ class InventoryAlerts::ReconcilerTest < ActiveSupport::TestCase
     end
   end
 
-  def explain(statement)
-    InventoryAlert.connection.select_values("EXPLAIN #{statement}").join("\n")
+  # The one query matching pattern that the block runs, with its bind values.
+  def captured_query(pattern, &block)
+    queries = []
+    capture = ->(*, payload) { queries << payload if payload[:sql].match?(pattern) }
+    ActiveSupport::Notifications.subscribed(capture, "sql.active_record", &block)
+    queries.sole
+  end
+
+  def explain(query)
+    InventoryAlert.connection.select_values("EXPLAIN #{query[:sql]}", "EXPLAIN", query[:binds]).join("\n")
   end
 
   # Compares only the attributes each expectation names, alert by alert in
