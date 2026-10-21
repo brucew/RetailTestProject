@@ -27,6 +27,8 @@ class CsvCheckRowParser
   # Returns a hash ready for insert_all.
   # Raises RowRejected, with a reason fit for an operator, when the row is unusable.
   def attributes_for(row)
+    raise RowRejected, "blank line" if row.fields.all?(&:blank?)
+
     {
       store_id: id_for(@store_ids_by_address, row[CATALOG_HEADERS[:store]], "store"),
       product_id: id_for(@product_ids_by_name, row[CATALOG_HEADERS[:product]], "product"),
@@ -40,12 +42,20 @@ class CsvCheckRowParser
     ids_by_key.fetch(key) { raise RowRejected, "unknown #{record_name} #{key.inspect}" }
   end
 
-  # A file has a few hundred distinct dates across a million rows, so each is
-  # parsed once. Checks are date-granular and stored at midnight in the app
-  # time zone, like the rows imported before this importer existed.
+  # Checks are date-granular and stored at midnight UTC whatever the app's
+  # time zone, which is how pages read them back as dates. A file has a few
+  # hundred distinct dates across a million rows, so each is parsed once.
   def event_time_for(date)
-    @event_times_by_date[date] ||= Date.iso8601(date).in_time_zone
-  rescue Date::Error, TypeError
+    @event_times_by_date[date] ||= calendar_date(date).to_time(:utc)
+  end
+
+  # Only YYYY-MM-DD: Date.iso8601 alone also accepts week and ordinal dates,
+  # two-digit years, signed years and a time of day (which it drops).
+  def calendar_date(date)
+    raise Date::Error unless date&.match?(/\A\d{4}-\d{2}-\d{2}\z/)
+
+    Date.iso8601(date)
+  rescue Date::Error
     raise RowRejected, "invalid date #{date.inspect} (expected YYYY-MM-DD)"
   end
 end

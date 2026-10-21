@@ -10,7 +10,7 @@ class InventoryChecks::CsvRowParserTest < ActiveSupport::TestCase
     attributes = @parser.attributes_for(row(date: "2025-01-02", inventory_present: "True"))
 
     assert_equal({ store_id: stores(:bree_high_street).id, product_id: products(:pony_porter).id,
-                   event_time: Time.zone.local(2025, 1, 2), inventory_present: true }, attributes)
+                   event_time: Time.utc(2025, 1, 2), inventory_present: true }, attributes)
   end
 
   test "inventory presence is read regardless of letter case" do
@@ -35,6 +35,32 @@ class InventoryChecks::CsvRowParserTest < ActiveSupport::TestCase
     end
 
     assert_equal 'invalid date "2025-01-02 10:00" (expected YYYY-MM-DD)', error.message
+  end
+
+  test "only plain calendar dates are accepted, not the other ISO 8601 forms" do
+    rejected = %w[20250102 2025-W01-4 2025-002 25-01-02 +2025-01-02 -2025-01-02 2025-01-02T10:00:00 2025-02-30 2025-1-2]
+    rejected += ["", nil]
+
+    rejected.each do |date|
+      error = assert_raises(InventoryChecks::CsvRowParser::RowRejected, date.inspect) { @parser.attributes_for(row(date:)) }
+      assert_equal "invalid date #{date.inspect} (expected YYYY-MM-DD)", error.message
+    end
+  end
+
+  test "a check is stored at midnight UTC, whatever the app's time zone" do
+    %w[Tokyo Pacific/Honolulu].each do |zone|
+      event_time = Time.use_zone(zone) { InventoryChecks::CsvRowParser.new.attributes_for(row(date: "2025-01-02"))[:event_time] }
+
+      assert_equal Time.utc(2025, 1, 2), event_time, zone
+    end
+  end
+
+  test "a blank line is rejected as blank, not as an unknown store" do
+    error = assert_raises(InventoryChecks::CsvRowParser::RowRejected) do
+      @parser.attributes_for(row(address: nil, product_name: nil, date: nil, inventory_present: nil))
+    end
+
+    assert_equal "blank line", error.message
   end
 
   test "parsing rows runs no queries once the parser is built" do
