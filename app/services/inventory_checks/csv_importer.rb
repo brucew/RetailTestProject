@@ -10,9 +10,12 @@ module InventoryChecks
 
     # Alerts are derived from the checks (D7). A new check can start, extend,
     # resolve, split or move a streak anywhere in its timeline, so each pair
-    # that gained a check is reconciled in full; other pairs can't change.
-    def reconcile_derived_records(changed_pairs)
-      InventoryAlerts::Reconciler.new(pairs: changed_pairs).reconcile
+    # in the file is reconciled in full. That includes pairs whose rows were
+    # all duplicates: re-importing a file then also repairs alerts that are
+    # missing or out of date for checks already stored. Pairs the file
+    # doesn't name are left alone.
+    def reconcile_derived_records(imported_pairs)
+      InventoryAlerts::Reconciler.new(pairs: imported_pairs).reconcile
     end
   end
 end

@@ -190,9 +190,24 @@ per-type import tasks.
     the stored alerts in Ruby and writes the difference with `insert_all`, `upsert_all` and a
     scoped `delete_all`. The created, updated and deleted counts are simply the sizes of those
     sets.
-  - **Scoped to what changed.** The inventory import collects the store/product pairs that gained
-    a check and reconciles only those, inside the import's transaction, so a failed import leaves
-    alerts as they were too. `bin/rails inventory_alerts:reconcile` does a full rebuild.
+  - **Scoped to the file.** The inventory import reconciles every store/product pair the file
+    names, inside the import's transaction, so a failed import leaves alerts as they were too.
+    After any import, alerts match the checks for those pairs. That includes a re-run where every
+    row is a duplicate, so re-importing a file also repairs alerts that are missing or out of date
+    for checks already stored. Pairs the file doesn't name are left alone.
+    `bin/rails inventory_alerts:reconcile` rebuilds every pair. Alerts stay accurate across
+    separate imports of partial data: a miss in one file and the next day's miss in another raise
+    one alert, and a later file can resolve it or move its start.
+  - **Memory: kept simple, with a known remedy.** The set of pairs a file names is small, because
+    it's capped by stores × products rather than by rows: 22,826 pairs, about 1.8 MB, for the
+    1M-row file. What costs memory is the reconcile. It holds the desired and stored alerts for
+    those pairs in Ruby to compare them (about 23 MB each for 30k alerts, about 770 bytes per
+    alert). A re-import of the full file therefore peaks at about 220 MB, against about 125 MB
+    when only new pairs were reconciled. That matches what a first import already used, so the
+    worst case doesn't rise. I kept it this way for simplicity. If memory became a constraint, the
+    remedy is to reconcile one store's pairs at a time inside the same transaction. That holds
+    roughly 300 alerts at once instead of 30,000, gives identical results, and costs about 100
+    smaller queries instead of a few large ones.
   - **A planner pitfall found by `EXPLAIN`.** Writing the scope as one bound
     `every_pair OR pair IN (...)` condition stopped Postgres from using the index: a one-pair
     reconcile scanned all 960k checks (90 ms against 0.5 ms). The scope is now one of two fixed SQL
@@ -305,7 +320,7 @@ early measurements on a clone were slower.
 | Operation | Result |
 |---|---|
 | `tracking_events:import` | 36–41 s, including the alert reconcile: 960,511 + 98,022 checks, **29,978 alerts (849 open)** |
-| Re-run | 26 s · 0 inserted · alerts created=0 updated=0 deleted=0 |
+| Re-run | 29 s · 0 inserted · every pair in the file re-checked · alerts created=0 updated=0 deleted=0 |
 | `inventory_alerts:reconcile` (full rebuild, nothing to change) | 2.5 s |
 | One-pair reconcile | ~5 ms (index scans on both tables) |
 | `/inventory_alerts` | 21 ms · 6 queries · 30 KB |
