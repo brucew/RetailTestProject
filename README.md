@@ -4,7 +4,7 @@ My solution to the take-home brief below. Price tracking is a separate kind of c
 (`PriceCheck`, alongside the renamed `InventoryCheck`), because either can happen without the
 other. A store/product that misses inventory twice in a row raises one alert to the brand per
 out-of-stock streak; alerts are derived from the checks and reconciled on every import. The
-million-row import went from 24 minutes to about 35 seconds, and pages that ran thousands of
+million-row import went from 24 minutes to about 36 seconds, prices and alerts included, and pages that ran thousands of
 queries now run a handful.
 
 - **[NOTES.md](NOTES.md)**: key decisions, assumptions, and before/after measurements. Start here
@@ -82,8 +82,8 @@ bin/rails server
 
 Then open <http://localhost:3000>:
 
-- **Stores** and **Products**: index pages with inventory-check counts, and show pages with the current price per
-  product or store and paginated inventory checks (newest first).
+- **Stores** and **Products**: index pages with inventory-check counts, and show pages with the
+  current price per product or store and paginated inventory checks (newest first).
 - **Price history**: on each product page, loaded lazily (`/products/:id/price_checks`).
 - **Brands**: product and open-alert counts, linking to that brand's alerts.
 - **Alerts** (`/inventory_alerts`): newest first, filterable by brand and status (open or
@@ -95,7 +95,7 @@ Then open <http://localhost:3000>:
 bin/rails test
 ```
 
-274 tests (763 assertions). They include query-count caps on every page, so an N+1 regression
+285 tests (803 assertions). They include query-count caps on every page, so an N+1 regression
 fails the build.
 
 ### Upgrading an existing database

@@ -299,49 +299,38 @@ passes, measuring each design on the full data. Every design produced identical 
 
 ## Results
 
-Same machine and method as the baseline. The data is a freshly imported database (960,511 checks),
-pages are the warm steady state, and the database is autovacuumed.
+Final measurements on the finished code, from a clean clone with a freshly imported database. Same
+machine and method as the baseline: development mode, warm requests, autovacuumed tables.
 
 | Operation | Before | After |
 |---|---:|---:|
-| Import 1M rows | 24 min 07 s · ~5M queries | **33 s** · 134 MB peak memory |
-| Re-run the import | duplicated every row | 28 s · 0 inserted |
-| `/stores` | 108 ms · 102 queries · 17 KB | 39 ms · 2 queries · 14 KB |
-| `/stores/1` | 3,238 ms · 20,105 queries · 1.8 MB | **11 ms · 5 queries · 16 KB** |
-| `/products` | 199 ms · 453 queries · 40 KB | 44 ms · 3 queries · 39 KB |
-| `/products/1` | 497 ms · 4,414 queries · 577 KB | 8 ms · 5 queries · 14 KB |
-| `/brands` | 14 ms · 46 queries · 8 KB | 5 ms · 2 queries · 7 KB |
-| `/brands/1` | 7 ms · 8 queries · 3 KB | 6 ms · 3 queries · 3 KB |
+| Import (`tracking_events:import`) | 24 min 07 s · ~5M queries · inventory only | **36 s** for 1M inventory + 100k price rows, alerts included · 250 MB peak memory |
+| Re-run the import | duplicated every row | 26 s · 0 inserted · alerts unchanged |
+| Full alert rebuild (`inventory_alerts:reconcile`) | — | 2.5 s |
+| `/stores` | 108 ms · 102 queries · 17 KB | 40 ms · 2 queries · 14 KB |
+| `/stores/1` | 3,238 ms · 20,105 queries · 1.8 MB | **33 ms · 7 queries · 64 KB** (adds current prices for ~220 products) |
+| `/products` | 199 ms · 453 queries · 40 KB | 51 ms · 3 queries · 39 KB |
+| `/products/1` | 497 ms · 4,414 queries · 577 KB | 16 ms · 7 queries · 32 KB (adds current price by store) |
+| `/products/1/price_checks` (history frame) | — | 8 ms · 4 queries · 12 KB |
+| `/brands` | 14 ms · 46 queries · 8 KB | 8 ms · 3 queries · 11 KB (adds open-alert counts) |
+| `/brands/1` | 7 ms · 8 queries · 3 KB | 6 ms · 6 queries · 3 KB |
+| `/inventory_alerts` | — | 13 ms · 6 queries · 30 KB |
+| `/inventory_alerts?brand_id=…&status=open` | — | 9 ms · 6 queries · 14 KB |
+| `/inventory_alerts/:id` | — | 5 ms · 5 queries · 4 KB |
+
+- **Where the time goes.** The store page's remaining time is mostly rendering its ~220
+  current-price rows; its SQL takes about 2 ms.
+- **Why some query counts went up.** A few pages run one or two more queries than strictly needed
+  (a `COUNT` or `EXISTS` before rendering a list), because relations stay lazy until the view
+  iterates them. Every count is fixed: it doesn't grow with the data.
+- **Memory.** Peak import memory rose from 134 MB before the alert work to 250 MB. The reconciler
+  compares the desired and stored alerts (about 30k each) in Ruby.
 
 **Vacuum after the import.** Grouped counts and Pagy's totals become index-only scans once the
 table's visibility map is up to date. Autovacuum takes care of this by itself: PostgreSQL 13+
 triggers on inserts, and it ran 2 seconds after the 960k-row import. No explicit `VACUUM` step is
 needed. A database cloned with `createdb -T` doesn't get this until it's vacuumed, which is why
 early measurements on a clone were slower.
-
-**With price tracking (Step 2).** Fresh database, both CSVs, the same method as above:
-
-| Operation | Result |
-|---|---|
-| `tracking_events:import` (1M inventory rows + 100k price rows) | 38.6 s: 960,511 + 98,022 inserted · 39,489 + 1,978 duplicates · 0 rejected |
-| Re-run | 32.5 s · 0 inserted |
-| `/products/1` (current price by store, inventory checks) | 17 ms · 6 queries · 31 KB |
-| `/products/1/price_checks` (lazy price history frame) | 9 ms · 4 queries · 12 KB |
-| `/stores/1` (current price of every product, inventory checks) | 38 ms · 6 queries · 64 KB; database time ~2 ms, the rest is rendering ~220 rows |
-
-**With alerts (Step 3).** Fresh database, `tracking_events:import`, the same method as above:
-
-| Operation | Result |
-|---|---|
-| `tracking_events:import` | 36–41 s, including the alert reconcile: 960,511 + 98,022 checks, **29,978 alerts (849 open)** |
-| Re-run | 29 s · 0 inserted · every pair in the file re-checked · alerts created=0 updated=0 deleted=0 |
-| `inventory_alerts:reconcile` (full rebuild, nothing to change) | 2.5 s |
-| One-pair reconcile | ~5 ms (index scans on both tables) |
-| `/inventory_alerts` | 21 ms · 6 queries · 30 KB |
-| `/inventory_alerts?brand_id=…&status=open` | 9 ms · 6 queries |
-| `/inventory_alerts/:id` | 6–15 ms · 5 queries |
-| `/brands` (with open-alert counts) | 10–26 ms · 3 queries |
-
 
 ## How it was tested
 
