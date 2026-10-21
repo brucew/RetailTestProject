@@ -144,7 +144,10 @@ no logic of its own; it just runs the per-type import tasks.
   model, row parser, unique index and file names. Adding a third kind of check is a few lines.
 - **Current price per store and product** uses `DISTINCT ON (store_id, product_id) … ORDER BY
   event_time DESC, id DESC`. It's wrapped as a subquery so a page can scope it through its owner,
-  then order and eager-load it freely. About 1.5 ms per page on the data.
+  then order and preload it freely. About 1.5 ms per page on the data. The pages sort these rows by
+  store address or product name, so `includes` joins the store or product rather than preloading
+  it separately. That's one query instead of two, and Rails chooses it because the order
+  references the joined table.
 - **Pages.**
   - The product page shows the current price at each store.
   - The store page shows the current price of each product. It isn't paginated, because the
@@ -254,7 +257,10 @@ passes, measuring each design on the full data. Every design produced identical 
   listings and counts read one table. The reconciler re-derives it, so a product that changes
   brand is followed on the next reconcile of its pairs.
 - **Database rules.** A streak's first check is unique (one alert per streak). `CHECK (miss_count
-  >= 2)` holds, and a resolution time and resolving check must be set together.
+  >= 2)` holds, and a resolution time and resolving check must be set together. The foreign keys
+  to the triggering and resolving checks, and to the product, have no indexes of their own. Checks
+  and products are never deleted (deletes are restricted), and alerts are rebuildable, so those
+  indexes would only slow the writes.
 - **Pages.**
   - An alerts index, newest first, with brand and status filters.
   - An alert page that lists the streak's checks, so a reader can see why the alert exists.
@@ -351,6 +357,13 @@ early measurements on a clone were slower.
   idempotent re-imports and page timings.
 - **An independent oracle.** A separate script derives every alert from the raw CSV and is compared
   with the database alert by alert.
+- **An independent code review before submission.** It found edge cases, each now fixed with a test
+  that fails without the fix:
+  - dates in other ISO 8601 forms being accepted
+  - storage that depended on the app's time zone
+  - repeated or string pairs passed to the reconciler
+  - `?page[]=2` returning a 500
+  - a malformed CSV ending in a backtrace
 
 ## How I worked
 
@@ -368,7 +381,9 @@ statement to ActiveRecord relations after a review.
 
 - **Exact-duplicate rows are dropped.** This assumes a repeated, identical row for the same day is a
   duplicate submission. If the source could legitimately record two identical checks on one day,
-  the unique index would need a time or a source row number instead.
+  the unique index would need a time or a source row number instead. The data has 372
+  store/product/days where a result returns after changing (for example miss, restock, miss). The
+  later repeat is dropped, which can move where a streak resolves.
 - **`insert_all` over `COPY`.** It's idiomatic and reports rejections per row, at about 2x the import
   time `COPY` would likely take.
 - **Grouped counts over counter caches.** There's no denormalized state to keep correct after bulk
