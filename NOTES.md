@@ -108,6 +108,13 @@ The old importer ran 5 SQL statements per row, about 5M in total. The new one:
 
 The result reports rows read, inserted, duplicates and rejected, with sample rejection reasons.
 
+**Duplicates are logged at info, not as warnings.** The summary line counts them, but only rejected
+rows get `warn` lines. Skipping duplicates is how re-imports stay safe: a re-run reports all
+1,000,000 rows as duplicates, so a warning would fire on every safe run and teach operators to
+ignore warnings. `ON CONFLICT DO NOTHING` also returns only the inserted rows, so telling a repeat
+within the file (an upstream data issue) from one already stored (a re-import) would mean tracking
+about a million keys in Ruby. Real event timestamps (see next steps) make the question mostly moot.
+
 **Considered and not chosen:** Postgres `COPY` into a staging table. It would probably be about 2x
 faster, but it's mostly raw SQL and makes per-row rejection reporting harder. At 33 s for 1M rows,
 `insert_all` is fast enough and stays idiomatic.
@@ -283,11 +290,12 @@ passes, measuring each design on the full data. Every design produced identical 
 
 ## Assumptions
 
-- `event_time` is date-granular. Checks are stored at midnight UTC and displayed as dates.
+- `event_time` is date-granular, because the import files carry dates only. Checks are stored at
+  midnight UTC and displayed as dates. Timestamps in the files are my first next step.
 - Rows that are identical in every column (store, product, date and result) are duplicate
   submissions.
 - Same-day rows with different results are ordered by CSV order (`id`). The later row is the newer
-  check.
+  check. This is a stand-in for real event times, which the files don't have.
 - A product name is unique across brands, because the CSV identifies products by name alone.
 - Prices are in a single currency (USD) and, like inventory, recorded per day.
 - "Two no-inventory events in a row" means two consecutive checks in a store/product timeline
@@ -295,7 +303,8 @@ passes, measuring each design on the full data. Every design produced identical 
   in the system once resolved, as history.
 - Imports aren't expected to run concurrently. Two imports touching the same pairs at once would
   each reconcile correctly, but the last writer wins on derived values. A per-pair advisory lock
-  would close that.
+  would close that, and it becomes necessary once checks can also arrive through an API (see next
+  steps).
 
 ## Results
 
@@ -369,10 +378,10 @@ statement to ActiveRecord relations after a review.
 **Trade-offs I chose deliberately**
 
 - **Exact-duplicate rows are dropped.** This assumes a repeated, identical row for the same day is a
-  duplicate submission. If the source could legitimately record two identical checks on one day,
-  the unique index would need a time or a source row number instead. The data has 372
-  store/product/days where a result returns after changing (for example miss, restock, miss). The
-  later repeat is dropped, which can move where a streak resolves.
+  duplicate submission. It's a workaround for date-only data. The data has 372 store/product/days
+  where a result returns after changing (for example miss, restock, miss), and the later repeat is
+  dropped, which can move where a streak resolves. Timestamps in the import files (my first next
+  step) remove the ambiguity.
 - **`insert_all` over `COPY`.** It's idiomatic and reports rejections per row, at about 2x the import
   time `COPY` would likely take.
 - **Grouped counts over counter caches.** There's no denormalized state to keep correct after bulk
@@ -388,15 +397,45 @@ statement to ActiveRecord relations after a review.
 
 **What I'd do next**
 
-- **Run imports as background jobs** with a per-pair advisory lock in the reconciler, so concurrent
-  imports can't race on derived alerts.
-- **Notify brands** with one digest per brand per import rather than one email per alert. A backfill
-  would otherwise send 30k emails.
+Top priorities, in order:
+
+1. **Give import events a timestamp, not just a date.** With a real `DateTime` per check, the
+   newest event is reliable. Several workarounds then go away:
+   - Same-day ties no longer fall back to CSV row order (`id`).
+   - The 372 same-day results that return after a change are kept as real checks. Only true
+     re-submissions (same store, product, time and result) are skipped as duplicates.
+   - Streak boundaries and current prices become exact.
+
+   The schema is already ready: `event_time` is a `datetime` column, and the unique indexes become
+   precise once it carries a time. The work is the row parsers (an ISO 8601 timestamp with a zone),
+   the date helpers, and tests. I didn't do it here because the system that generates the import
+   files is out of scope. On a real project I'd agree the format change with the team responsible
+   for those files.
+2. **Improve the view styling considerably, probably by adding Tailwind CSS** (`tailwindcss-rails`,
+   which needs no Node with importmaps). The pages are deliberately plain, with a few hand-written
+   stylesheets. A design system would make the tables, filters and status badges much easier to
+   scan, and responsive layouts easier to maintain.
+3. **Add create API endpoints for `InventoryCheck` and `PriceCheck`**, as an alternative to bulk CSV
+   imports. For example, authenticated `POST /api/inventory_checks` and `POST /api/price_checks`,
+   validated by the models (which already match the database rules). Each inventory check would
+   reconcile its own store/product pair in the same transaction, so alerts stay current
+   check by check.
+
+Then, given those:
+
+- **A per-pair advisory lock in the reconciler**, and imports moved to background jobs. Once API
+  writes can arrive while an import runs, two writers can touch the same pair, so the lock becomes
+  a requirement rather than a precaution.
+- **Notify brands** with a digest per brand per day (or per import), rather than one email per
+  alert. A backfill would otherwise send 30k emails, and API writes would send a steady trickle.
 - **Keyset pagination** if per-store histories grow far beyond 10k checks.
 - **Targeted indexes as data grows:**
   - `(product_id, store_id, event_time DESC, id DESC) INCLUDE (price_cents)` for current prices
   - a partial index on open alerts
   - `(store_id, product_id, event_time, id) INCLUDE (inventory_present)` for scoped reconciles
-- **A `COPY`-based path in `CsvCheckImporter`**, which would speed up both importers at once.
+
+  With timestamps, the `id` tie-breaks in these become a last resort rather than routine.
+- **A `COPY`-based path in `CsvCheckImporter`**, for large backfills only. With an API for
+  incremental data, the CSV import matters less day to day.
 - **Tooling.** CI with Postgres, RuboCop (`rubocop-rails-omakase`), Bullet in test, and a
   `perf:report` task that reproduces the tables above.
