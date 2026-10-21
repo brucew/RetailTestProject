@@ -22,6 +22,7 @@ class CsvCheckImporter
   class Error < StandardError; end
   class MissingHeadersError < Error; end
   class SourceNotFoundError < Error; end
+  class MalformedFileError < Error; end
 
   # derived_records:: what #reconcile_derived_records returned, or nil.
   Result = Data.define(:rows_read, :inserted, :duplicates, :rejected, :rejection_samples, :derived_records) do
@@ -81,9 +82,8 @@ class CsvCheckImporter
   end
 
   # Returns a Result. Raises MissingHeadersError before inserting anything
-  # when the file isn't an export of this kind of check, and lets
-  # CSV::MalformedCSVError (which rolls the import back) through for a
-  # structurally broken file.
+  # when the file isn't an export of this kind of check, and
+  # MalformedFileError, after rolling the import back, when it isn't valid CSV.
   def import
     @rows_read = @inserted = @rejected = 0
     @rejection_samples = []
@@ -94,6 +94,8 @@ class CsvCheckImporter
       @derived_records = reconcile_derived_records(imported_pairs)
     end
     result.tap { |imported| log(imported) }
+  rescue CSV::MalformedCSVError => error
+    raise MalformedFileError, "#{@path} is not valid CSV: #{error.message}"
   end
 
   private
