@@ -190,9 +190,12 @@ per-type import tasks.
     the stored alerts in Ruby and writes the difference with `insert_all`, `upsert_all` and a
     scoped `delete_all`. The created, updated and deleted counts are simply the sizes of those
     sets.
-  - **Scoped to what changed.** The inventory import collects the store/product pairs that gained
-    a check and reconciles only those, inside the import's transaction, so a failed import leaves
-    alerts as they were too. `bin/rails inventory_alerts:reconcile` does a full rebuild.
+  - **Scoped to the file.** The inventory import reconciles every store/product pair the file
+    names, inside the import's transaction, so a failed import leaves alerts as they were too.
+    After any import, alerts match the checks for those pairs. That includes a re-run where every
+    row is a duplicate, so re-importing a file also repairs alerts that are missing or out of date
+    for checks already stored. Pairs the file doesn't name are left alone.
+    `bin/rails inventory_alerts:reconcile` rebuilds every pair.
   - **A planner pitfall found by `EXPLAIN`.** Writing the scope as one bound
     `every_pair OR pair IN (...)` condition stopped Postgres from using the index: a one-pair
     reconcile scanned all 960k checks (90 ms against 0.5 ms). The scope is now one of two fixed SQL
@@ -305,7 +308,7 @@ early measurements on a clone were slower.
 | Operation | Result |
 |---|---|
 | `tracking_events:import` | 36–41 s, including the alert reconcile: 960,511 + 98,022 checks, **29,978 alerts (849 open)** |
-| Re-run | 26 s · 0 inserted · alerts created=0 updated=0 deleted=0 |
+| Re-run | 29 s · 0 inserted · every pair in the file re-checked · alerts created=0 updated=0 deleted=0 |
 | `inventory_alerts:reconcile` (full rebuild, nothing to change) | 2.5 s |
 | One-pair reconcile | ~5 ms (index scans on both tables) |
 | `/inventory_alerts` | 21 ms · 6 queries · 30 KB |
